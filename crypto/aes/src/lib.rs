@@ -87,6 +87,12 @@
 //! schedule with each round key transformed. One [`AES128Internal`](hazmat::AES128Internal) value therefore encrypts and decrypts
 //! from one stored schedule.
 //!
+//! # FIPS 140-3 self-tests
+//!
+//! With the off-by-default `fips` feature, creating any AES key returns
+//! `SymmetricCipherError::SelfTestNotPassed` until the AES self-test has passed, and after any
+//! self-test has failed. `bouncycastle-fips` runs the self-test; without it, nothing is gated.
+//!
 //! # Memory Usage
 //!
 //! There are no lookup tables and no heap allocation. The only persistent state is the key

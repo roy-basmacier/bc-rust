@@ -332,7 +332,16 @@ pub struct SHA512Internal<PARAMS: SHA512InitValue> {
 
 impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
     /// Creates a new SHA512 instance, ready for use.
+    ///
+    /// # Panics
+    /// With the `fips` feature, if the SHA-512 FIPS 140-3 self-test has not passed.
+    #[cfg_attr(feature = "fips", track_caller)]
     pub fn new() -> Self {
+        // The FIPS 140-3 self-test gate; `Default` and every one-shot, HMAC and HKDF come here.
+        #[cfg(feature = "fips")]
+        bouncycastle_core::fips::assert_self_test(
+            bouncycastle_core::fips::SelfTestedAlgorithm::SHA512,
+        );
         Self {
             _params: core::marker::PhantomData,
             state: Sha512State::<PARAMS>::new(),
@@ -538,9 +547,17 @@ impl<PARAMS: SHA512InitValue> Suspendable<SUSPENDED_SHA512_STATE_LEN> for SHA512
         out_to_return
     }
 
+    /// # Panics
+    /// With the `fips` feature, if the SHA-512 FIPS 140-3 self-test has not passed.
+    #[cfg_attr(feature = "fips", track_caller)]
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA512_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
+        // The FIPS 140-3 self-test gate, as in `new`: a resumed state is a new service instance.
+        #[cfg(feature = "fips")]
+        bouncycastle_core::fips::assert_self_test(
+            bouncycastle_core::fips::SelfTestedAlgorithm::SHA512,
+        );
         // Resuming builds the state without the initial hash value, so evaluate it here: for
         // SHA-512/t that is what runs `check_t`, which makes an invalid `t` a compile error on
         // this path too.

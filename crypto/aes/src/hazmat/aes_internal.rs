@@ -135,6 +135,13 @@ impl<P: AESParams> AESInternal<P> {
     /// Takes `&dyn KeyMaterialTrait` so the three constructors, whose `KeyMaterial<N>` capacities
     /// differ, can share one implementation.
     fn validate(key: &dyn KeyMaterialTrait) -> Result<(), SymmetricCipherError> {
+        // The FIPS 140-3 self-test gate. Every AES key of every mode and size is expanded here,
+        // so this one check covers them all; the self-test passes through it too, while its
+        // status is `Running`.
+        #[cfg(feature = "fips")]
+        bouncycastle_core::fips::check_self_test(bouncycastle_core::fips::SelfTestedAlgorithm::AES)
+            .map_err(SymmetricCipherError::SelfTestNotPassed)?;
+
         if key.key_type() != KeyType::SymmetricCipherKey {
             return Err(KeyMaterialError::InvalidKeyType(
                 "AES requires a key of type KeyType::SymmetricCipherKey.",
@@ -285,6 +292,8 @@ impl AES128Internal {
     /// * [`KeyMaterialError::InvalidKeyType`] if the key is not [`KeyType::SymmetricCipherKey`].
     /// * [`KeyMaterialError::InvalidLength`] if the key is not 16 bytes long.
     /// * [`KeyMaterialError::SecurityStrength`] if the key carries a strength below 128 bits.
+    /// * With the `fips` feature, [`SymmetricCipherError::SelfTestNotPassed`] if the AES self-test
+    ///   has not passed (checked first).
     pub(crate) fn new(key: &KeyMaterial<16>) -> Result<Self, SymmetricCipherError> {
         Self::validate(key)?;
         // `validate` checked key_len() == 16, which is exactly what ref_to_bytes() spans.

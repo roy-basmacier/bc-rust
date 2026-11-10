@@ -180,7 +180,16 @@ pub struct SHA256Internal<PARAMS: SHA256InitValue> {
 
 impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
     /// Creates a new SHA256 instance, ready for use.
+    ///
+    /// # Panics
+    /// With the `fips` feature, if the SHA-256 FIPS 140-3 self-test has not passed.
+    #[cfg_attr(feature = "fips", track_caller)]
     pub fn new() -> Self {
+        // The FIPS 140-3 self-test gate; `Default` and every one-shot, HMAC and HKDF come here.
+        #[cfg(feature = "fips")]
+        bouncycastle_core::fips::assert_self_test(
+            bouncycastle_core::fips::SelfTestedAlgorithm::SHA256,
+        );
         Self {
             _params: core::marker::PhantomData,
             state: Sha256State::<PARAMS>::new(),
@@ -389,9 +398,17 @@ impl<PARAMS: SHA256InitValue> Suspendable<SUSPENDED_SHA256_STATE_LEN> for SHA256
         out_to_return
     }
 
+    /// # Panics
+    /// With the `fips` feature, if the SHA-256 FIPS 140-3 self-test has not passed.
+    #[cfg_attr(feature = "fips", track_caller)]
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA256_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
+        // The FIPS 140-3 self-test gate, as in `new`: a resumed state is a new service instance.
+        #[cfg(feature = "fips")]
+        bouncycastle_core::fips::assert_self_test(
+            bouncycastle_core::fips::SelfTestedAlgorithm::SHA256,
+        );
         debug_assert_eq!(SUSPENDED_SHA256_STATE_LEN, 108);
 
         // check the version tag

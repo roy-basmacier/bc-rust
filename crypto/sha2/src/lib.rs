@@ -97,6 +97,14 @@
 //! let h: Vec<u8> = sha2_resumed.do_final();
 //! ```
 //!
+//! # FIPS 140-3 self-tests
+//!
+//! With the off-by-default `fips` feature, creating a SHA-224 or SHA-256 instance (directly, by a
+//! one-shot, by `Default`, by resuming, or inside HMAC or HKDF) panics until the SHA-256
+//! self-test has passed, and the SHA-384, SHA-512 and SHA-512/t instances likewise until the
+//! SHA-512 one has; all of them panic after any self-test has failed. `bouncycastle-fips` runs the
+//! self-tests; without it, nothing is gated.
+//!
 //! # Memory Usage
 //!
 //! | Object                                          | Size (bytes) |

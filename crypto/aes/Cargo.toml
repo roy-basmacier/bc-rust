@@ -3,6 +3,12 @@ name = "bouncycastle-aes"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Gates every AES key on the FIPS 140-3 self-test status in `bouncycastle-core`: until the
+# self-test has passed, key creation returns `SymmetricCipherError::SelfTestNotPassed`. Off by
+# default; `bouncycastle-fips` turns it on.
+fips = ["bouncycastle-core/fips"]
+
 [dependencies]
 bouncycastle-core.workspace = true
 bouncycastle-utils.workspace = true
