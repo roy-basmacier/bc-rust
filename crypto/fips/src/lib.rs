@@ -1,8 +1,9 @@
 //! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust.
 //!
-//! **Prototype skeleton.** The public API is fixed here; the bodies are stubs that two competing
-//! layouts fill in (KATs in this crate with the status gate in `bouncycastle-core`, or KATs in
-//! the algorithm crates behind their `fips` features and aggregated here).
+//! **Prototype, layout A:** the known-answer tests and their vectors live in this crate and drive
+//! the algorithm crates through their public APIs only; the status of each algorithm is a
+//! process-wide table in `bouncycastle-core` (its `fips` module), which the algorithm crates'
+//! constructors read under their own `fips` features and which only this crate writes.
 //!
 //! An application that needs the self-tests depends on this crate, calls
 //! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
@@ -126,9 +127,41 @@
 //!   on a crate's own `fips` feature under `-p`. The `fips` code is mutated with an explicit
 //!   `--features fips` on the crate that owns it.
 //!
+//! # Self-test in progress
+//!
+//! The self-tests create their keys and hash instances through the same gated constructors as
+//! any other code, so an algorithm's status is [`SelfTestStatus::Running`] while its self-test
+//! runs, and the gates admit `Running` as they admit `Passed`. A status has no notion of which
+//! thread is asking, so for that window **every thread** can create services of the algorithm
+//! being tested:
+//!
+//! * during [`power_on_self_tests`], from the moment an algorithm's self-test starts, before its
+//!   known answer has been checked (until then, and for the algorithms still waiting their turn,
+//!   creation is refused as [`SelfTestStatus::NotRun`]);
+//! * during [`run_self_tests`], throughout, as it was already `Passed` (FIPS 140-3 IG 10.3.E
+//!   Resolution 5 allows a repeated CAST to run "in the background without the need for
+//!   inhibiting data output").
+//!
+//! If the self-test then fails, services created in the window keep working: the gates are on
+//! creation only. An application that needs nothing to run before the power-on self-tests
+//! have passed calls [`power_on_self_tests`] before it starts any other thread. A self-test that
+//! panics is recorded as failed as the panic unwinds, so `Running` never outlives it.
+//!
+//! # Who can record a pass
+//!
+//! `bouncycastle-core` accepts status writes from a single writer, the first one to write in the
+//! process; this crate's writer is a private `static`, so once it has written, no other code can
+//! change a status, and a failure it records stands until the program restarts. Nothing stops
+//! other code from writing first, though: any crate can call
+//! `bouncycastle_core::fips::set_self_test_status` with a writer of its own before the first
+//! [`power_on_self_tests`] and record [`SelfTestStatus::Passed`] for an algorithm never tested.
+//! Every later [`power_on_self_tests`] and [`run_self_tests`] then returns
+//! [`SelfTestError::StatusWriterTaken`], so an application that checks the result finds out;
+//! one that never calls them does not.
+//!
 //! # Memory Usage
 //!
-//! To be measured once the self-tests have bodies.
+//! Not yet measured.
 //!
 //! # 🚨 Security Considerations 🚨
 //!
@@ -142,11 +175,15 @@
 
 pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
 
-// The algorithm crates the features pull in; the self-tests that use them are still stubs.
-#[cfg(feature = "aes")]
-use bouncycastle_aes as _;
-#[cfg(feature = "sha2")]
-use bouncycastle_sha2 as _;
+use bouncycastle_core::fips::SelfTestStatusWriter;
+
+mod driver;
+mod kats;
+mod vectors;
+
+/// This crate's identity as the writer of `bouncycastle-core`'s status table. Private, so no
+/// other code can write as this crate.
+static WRITER: SelfTestStatusWriter = SelfTestStatusWriter::new();
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
 /// enabled cargo features, hashes first.
@@ -168,25 +205,46 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
 /// [`SelfTestError::KnownAnswerMismatch`] for the first algorithm whose self-test fails; every
 /// gated service then refuses to be created until the program restarts. After such a failure,
 /// [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`] for the failed algorithm, without
-/// running anything.
+/// running anything. [`SelfTestError::StatusWriterTaken`], checked before anything else, if
+/// other code wrote a self-test status before this crate first did (see "Who can record a
+/// pass"); nothing is run.
 pub fn power_on_self_tests() -> Result<(), SelfTestError> {
-    todo!("filled in by the self-test layout prototypes")
+    driver::run(&WRITER, SELF_TESTED, run_kat, false)
 }
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] again, whether or not it passed
 /// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E). It cannot clear a failure;
-/// only a restart does.
+/// only a restart does. Services stay usable while it runs.
 ///
 /// # Errors
 ///
 /// As [`power_on_self_tests`].
 pub fn run_self_tests() -> Result<(), SelfTestError> {
-    todo!("filled in by the self-test layout prototypes")
+    driver::run(&WRITER, SELF_TESTED, run_kat, true)
 }
 
 /// The current status of `algorithm`'s self-test. An algorithm this build does not self-test
 /// (not in [`SELF_TESTED`]) is always [`SelfTestStatus::NotRun`].
 pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
-    let _ = algorithm;
-    todo!("filled in by the self-test layout prototypes")
+    if SELF_TESTED.contains(&algorithm) {
+        bouncycastle_core::fips::self_test_status(algorithm)
+    } else {
+        SelfTestStatus::NotRun
+    }
+}
+
+/// Runs `algorithm`'s self-test on the compiled-in vectors; `true` if it passed.
+fn run_kat(algorithm: SelfTestedAlgorithm) -> bool {
+    match algorithm {
+        #[cfg(feature = "sha2")]
+        SelfTestedAlgorithm::SHA256 => kats::sha256(&vectors::SHA256_KAT),
+        #[cfg(feature = "sha2")]
+        SelfTestedAlgorithm::SHA512 => kats::sha512(&vectors::SHA512_KAT),
+        #[cfg(feature = "aes")]
+        SelfTestedAlgorithm::AES => {
+            kats::aes(&vectors::AES_GCM_128_KAT, &vectors::AES_CBC_128_DECRYPT_KAT)
+        }
+        // Not in `SELF_TESTED`, so never asked for; a self-test this build lacks cannot pass.
+        _ => false,
+    }
 }

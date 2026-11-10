@@ -39,10 +39,7 @@ fn status_table_lifecycle() {
 
     // Any other writer is refused, and records nothing; claiming again is a no-op for the owner.
     assert_eq!(claim_self_test_status_writer(&WRITER), Ok(()));
-    assert_eq!(
-        claim_self_test_status_writer(&OTHER_WRITER),
-        Err(SelfTestError::StatusWriterTaken)
-    );
+    assert_eq!(claim_self_test_status_writer(&OTHER_WRITER), Err(SelfTestError::StatusWriterTaken));
     assert_eq!(
         set_self_test_status(&OTHER_WRITER, AES, Passed),
         Err(SelfTestError::StatusWriterTaken)
