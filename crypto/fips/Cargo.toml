@@ -18,7 +18,10 @@ sha2 = ["dep:bouncycastle-sha2"]
 
 [dependencies]
 bouncycastle-core = { path = "../core", features = ["fips"] }
-bouncycastle-aes = { path = "../aes", optional = true }
-bouncycastle-sha2 = { path = "../sha2", optional = true }
+bouncycastle-aes = { path = "../aes", optional = true, features = ["fips"] }
+bouncycastle-sha2 = { path = "../sha2", optional = true, features = ["fips"] }
+
+[dev-dependencies]
+bouncycastle-cipher = { path = "../cipher" }
 
 [workspace]

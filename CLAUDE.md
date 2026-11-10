@@ -71,6 +71,10 @@ cargo run -p cli -- --help      # run the `bc-rust` CLI
 `crypto/fips` (`bouncycastle-fips`, the FIPS 140-3 self-tests) is excluded from the workspace, so
 `--workspace` never builds it; use `cargo test --manifest-path crypto/fips/Cargo.toml`. Its crate
 docs ("Feature unification") say why, and what that rules out for the other members.
+The self-tests themselves live in `crypto/aes/src/self_test.rs` and `crypto/sha2/src/self_test.rs`
+behind each crate's `fips` feature; their unit tests (which inject a failing KAT) run with
+`cargo test -p bouncycastle-aes --features fips --lib` (likewise `-p bouncycastle-sha2`). Only
+`--lib`: with `fips` on, the crate's integration tests and doctests find no self-test run and fail.
 
 Quality / mutation testing:
 

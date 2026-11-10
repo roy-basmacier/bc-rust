@@ -46,7 +46,13 @@ examine_globs = [
 exclude_globs = [
     "src/test_*.rs",
     "src/**/test.rs",
-    "tests/**/*.rs"
+    "tests/**/*.rs",
+    # The algorithm crates' FIPS self-tests are compiled only with `fips`, so under the default
+    # features every mutant in them would be reported missed. Mutate them with a copy of this file
+    # without `examine_globs` and this entry:
+    # `cargo mutants -p bouncycastle-aes --features fips --config <copy> -f '**/self_test.rs' -- --lib`
+    # (`--lib`: with `fips` on, the crate's integration tests find no self-test run and fail).
+    "**/src/self_test.rs"
 ]
 
 # Skip calls to these functions/methods
