@@ -8,6 +8,8 @@
 
 pub mod direction;
 pub mod errors;
+#[cfg(feature = "fips")]
+pub mod fips;
 pub mod hazmat;
 pub mod kdf_params;
 pub mod kem_key;

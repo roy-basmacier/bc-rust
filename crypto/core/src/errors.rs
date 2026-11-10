@@ -200,6 +200,10 @@ pub enum SymmetricCipherError {
     RNGError(RNGError),
     ///
     StateError(&'static str),
+    /// The algorithm's FIPS 140-3 self-test has not passed, so it may not be used; the status says
+    /// whether it has not been run yet or has failed.
+    #[cfg(feature = "fips")]
+    SelfTestNotPassed(crate::fips::SelfTestStatus),
 }
 
 /// Errors from a [`crate::traits::BlockCipherPadding`] scheme.
