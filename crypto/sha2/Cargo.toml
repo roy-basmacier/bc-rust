@@ -3,6 +3,11 @@ name = "bouncycastle-sha2"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# The FIPS 140-3 self-tests (`self_test()`) and the gate that panics on creating a SHA-2 hash until
+# the one covering it has passed. Off by default; turned on by `bouncycastle-fips`.
+fips = ["bouncycastle-core/fips"]
+
 [dependencies]
 bouncycastle-core.workspace = true
 bouncycastle-hkdf.workspace = true

@@ -332,7 +332,14 @@ pub struct SHA512Internal<PARAMS: SHA512InitValue> {
 
 impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
     /// Creates a new SHA512 instance, ready for use.
+    ///
+    /// # Panics
+    /// With the `fips` feature, until the SHA-512 self-test has passed.
     pub fn new() -> Self {
+        // FIPS 140-3 IG 10.3.A: no hash before its self-test has passed. `Default` and the
+        // one-shots come through here.
+        #[cfg(feature = "fips")]
+        crate::self_test::require_sha512_passed();
         Self {
             _params: core::marker::PhantomData,
             state: Sha512State::<PARAMS>::new(),
@@ -541,6 +548,10 @@ impl<PARAMS: SHA512InitValue> Suspendable<SUSPENDED_SHA512_STATE_LEN> for SHA512
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA512_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
+        // FIPS 140-3: resuming is creating a hash too; see `new`. SuspendableError has no
+        // self-test variant, so this panics as `new` does.
+        #[cfg(feature = "fips")]
+        crate::self_test::require_sha512_passed();
         // Resuming builds the state without the initial hash value, so evaluate it here: for
         // SHA-512/t that is what runs `check_t`, which makes an invalid `t` a compile error on
         // this path too.

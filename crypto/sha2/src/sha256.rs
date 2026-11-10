@@ -180,7 +180,14 @@ pub struct SHA256Internal<PARAMS: SHA256InitValue> {
 
 impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
     /// Creates a new SHA256 instance, ready for use.
+    ///
+    /// # Panics
+    /// With the `fips` feature, until the SHA-256 self-test has passed.
     pub fn new() -> Self {
+        // FIPS 140-3 IG 10.3.A: no hash before its self-test has passed. `Default` and the
+        // one-shots come through here.
+        #[cfg(feature = "fips")]
+        crate::self_test::require_sha256_passed();
         Self {
             _params: core::marker::PhantomData,
             state: Sha256State::<PARAMS>::new(),
@@ -392,6 +399,10 @@ impl<PARAMS: SHA256InitValue> Suspendable<SUSPENDED_SHA256_STATE_LEN> for SHA256
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA256_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
+        // FIPS 140-3: resuming is creating a hash too; see `new`. SuspendableError has no
+        // self-test variant, so this panics as `new` does.
+        #[cfg(feature = "fips")]
+        crate::self_test::require_sha256_passed();
         debug_assert_eq!(SUSPENDED_SHA256_STATE_LEN, 108);
 
         // check the version tag
