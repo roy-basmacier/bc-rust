@@ -7,7 +7,7 @@
 
 use bouncycastle_core::fips::{
     SelfTestError, SelfTestStatus, SelfTestStatusWriter, SelfTestedAlgorithm, assert_self_test,
-    check_self_test, self_test_status, set_self_test_status,
+    check_self_test, claim_self_test_status_writer, self_test_status, set_self_test_status,
 };
 
 static WRITER: SelfTestStatusWriter = SelfTestStatusWriter::new();
@@ -37,7 +37,12 @@ fn status_table_lifecycle() {
     assert!(!panics(SHA256));
     assert_eq!(check_self_test(SHA512), Err(NotRun));
 
-    // Any other writer is refused, and records nothing.
+    // Any other writer is refused, and records nothing; claiming again is a no-op for the owner.
+    assert_eq!(claim_self_test_status_writer(&WRITER), Ok(()));
+    assert_eq!(
+        claim_self_test_status_writer(&OTHER_WRITER),
+        Err(SelfTestError::StatusWriterTaken)
+    );
     assert_eq!(
         set_self_test_status(&OTHER_WRITER, AES, Passed),
         Err(SelfTestError::StatusWriterTaken)

@@ -195,8 +195,8 @@ pub fn assert_self_test(algorithm: SelfTestedAlgorithm) {
 /// The identity of the one piece of code allowed to write the status table, by the address of a
 /// `static` of this type.
 ///
-/// The first call to [`set_self_test_status`] in the program records the address of the writer it
-/// was given; every later call must give the same `static`, and is refused otherwise.
+/// The first call to [`set_self_test_status`] or [`claim_self_test_status_writer`] in the program
+/// records the address of the writer it was given; every later call must give the same `static`, and is refused otherwise.
 /// `bouncycastle-fips` keeps its writer in a private `static`, so once it has written a status no
 /// other code can. Nothing stops other code from writing first: see
 /// [`set_self_test_status`].
@@ -224,9 +224,35 @@ impl Default for SelfTestStatusWriter {
 /// The writer every status write must come from: null until the first write claims it.
 static STATUS_WRITER: AtomicPtr<SelfTestStatusWriter> = AtomicPtr::new(ptr::null_mut());
 
+/// Makes `writer` the only writer [`set_self_test_status`] accepts, if no writer has written yet,
+/// without writing a status. `Ok` if `writer` is, or now is, that writer.
+///
+/// A self-test run calls this before deciding what to run, so that it learns of another writer
+/// even when it has nothing to write.
+///
+/// # Errors
+/// [`SelfTestError::StatusWriterTaken`] if a different writer was first.
+pub fn claim_self_test_status_writer(
+    writer: &'static SelfTestStatusWriter,
+) -> Result<(), SelfTestError> {
+    // Compared by address only; the pointer is never dereferenced.
+    let claimant = ptr::from_ref(writer).cast_mut();
+    match STATUS_WRITER.compare_exchange(
+        ptr::null_mut(),
+        claimant,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => Ok(()),
+        Err(current) if current == claimant => Ok(()),
+        Err(_) => Err(SelfTestError::StatusWriterTaken),
+    }
+}
+
 /// Records `status` as `algorithm`'s self-test status, on behalf of `writer`.
 ///
-/// The first call in the program makes `writer` the only one this function accepts from then on.
+/// The first call in the program (or to [`claim_self_test_status_writer`]) makes `writer` the
+/// only one this function accepts from then on.
 /// [`SelfTestStatus::Failed`] is final: a failed algorithm keeps that status until the program
 /// restarts, and a write of any other status to it is refused.
 ///
@@ -248,18 +274,7 @@ pub fn set_self_test_status(
     algorithm: SelfTestedAlgorithm,
     status: SelfTestStatus,
 ) -> Result<(), SelfTestError> {
-    // Compared by address only; the pointer is never dereferenced.
-    let claimant = ptr::from_ref(writer).cast_mut();
-    match STATUS_WRITER.compare_exchange(
-        ptr::null_mut(),
-        claimant,
-        Ordering::AcqRel,
-        Ordering::Acquire,
-    ) {
-        Ok(_) => {}
-        Err(current) if current == claimant => {}
-        Err(_) => return Err(SelfTestError::StatusWriterTaken),
-    }
+    claim_self_test_status_writer(writer)?;
 
     // A compare-and-swap loop rather than a load and a store, so that a `Failed` written by one
     // thread cannot be overwritten by another thread's `Passed` that read the old value first.
