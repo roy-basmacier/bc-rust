@@ -9,8 +9,9 @@ edition.workspace = true
 # `#![no_std]` (see the TODO at the top of `src/lib.rs`).
 default = ["std"]
 std = []
-# `fips` adds the FIPS 140-3 self-test types (`fips` module, `SymmetricCipherError::SelfTestNotPassed`)
-# and nothing else; it is off by default and is turned on by `bouncycastle-fips`.
+# `fips` adds the FIPS 140-3 self-test types and the process-wide self-test status table with its
+# gates (`fips` module, `SymmetricCipherError::SelfTestNotPassed`); it is off by default and is
+# turned on by the algorithm crates' own `fips` features and by `bouncycastle-fips`.
 fips = []
 
 [dependencies]
