@@ -324,21 +324,20 @@ mod tests {
         for (i, flip) in flips.iter().enumerate() {
             let mut bad = KAT;
             flip(&mut bad);
-            let gcm = gcm_encrypt_matches(&bad) && gcm_decrypt_matches(&bad);
-            let cbc = cbc_decrypt_matches(&bad);
-            if i < 6 {
-                assert!(!gcm && cbc, "GCM flip {i}");
-            } else {
-                assert!(gcm && !cbc, "CBC flip {i}");
-            }
+            let results =
+                [gcm_encrypt_matches(&bad), gcm_decrypt_matches(&bad), cbc_decrypt_matches(&bad)];
+            // Every GCM value is consumed or compared by both GCM checks.
+            let expected = if i < 6 { [false, false, true] } else { [true, true, false] };
+            assert_eq!(results, expected, "flip {i}");
         }
         assert!(
             gcm_encrypt_matches(&KAT) && gcm_decrypt_matches(&KAT) && cbc_decrypt_matches(&KAT)
         );
 
         // A run with a wrong answer fails and leaves AES in the error state for good.
+        // Only the last of the three CASTs is wrong, so the run must not stop at the first.
         let mut bad = KAT;
-        bad.gcm_tag[0] ^= 0x80;
+        bad.cbc_pt[0] ^= 0x80;
         assert_eq!(run(&bad), Err(SelfTestError::KnownAnswerMismatch(SelfTestedAlgorithm::AES)));
         assert_eq!(self_test_status(), SelfTestStatus::Failed);
         assert_eq!(
