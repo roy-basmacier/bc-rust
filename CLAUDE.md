@@ -68,6 +68,10 @@ cargo doc                       # rustdoc (published to gh-pages by CI on main)
 cargo run -p cli -- --help      # run the `bc-rust` CLI
 ```
 
+`crypto/fips` (`bouncycastle-fips`, the FIPS 140-3 self-tests) is excluded from the workspace, so
+`--workspace` never builds it; use `cargo test --manifest-path crypto/fips/Cargo.toml`. Its crate
+docs ("Feature unification") say why, and what that rules out for the other members.
+
 Quality / mutation testing:
 
 ```

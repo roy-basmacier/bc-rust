@@ -18,8 +18,10 @@ error_values = [
 # Pass extra arguments to cargo test
 #additional_cargo_test_args = ["--nocapture", "--test-threads=1"]
 
-# Activate all features during testing
-all_features = true
+# Default features only. `all_features = true` would turn on a crate's off-by-default `fips` feature
+# under `-p`, gating its services on self-tests the tests never run (see "Feature unification" in
+# crypto/fips/src/lib.rs). Every other feature in the workspace is a default one. Mutate `fips` code
+# with an explicit `--features fips`.
 
 # Build timeout multiplier (relative to baseline build time)
 build_timeout_multiplier = 3.0

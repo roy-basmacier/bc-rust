@@ -1,0 +1,24 @@
+# Excluded from the root workspace (see `exclude` there) and its own workspace root, so that
+# `cargo build --workspace` / `cargo test --workspace` never turn on the `fips` features this crate
+# enables on the algorithm crates. Build and test it with
+# `cargo test --manifest-path crypto/fips/Cargo.toml`; see "Feature unification" in src/lib.rs.
+[package]
+name = "bouncycastle-fips"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+
+[features]
+default = ["aes", "sha2"]
+# Self-test AES (all modes and key sizes) and gate its services on the result.
+aes = ["dep:bouncycastle-aes"]
+# Self-test SHA-256 and SHA-512 (covering SHA-224, SHA-384, SHA-512/224 and SHA-512/256) and gate
+# their services on the result.
+sha2 = ["dep:bouncycastle-sha2"]
+
+[dependencies]
+bouncycastle-core = { path = "../core", features = ["fips"] }
+bouncycastle-aes = { path = "../aes", optional = true }
+bouncycastle-sha2 = { path = "../sha2", optional = true }
+
+[workspace]

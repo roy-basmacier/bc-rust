@@ -1,0 +1,186 @@
+//! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust.
+//!
+//! **Prototype skeleton.** The public API is fixed here; the bodies are stubs that two competing
+//! layouts fill in (KATs in this crate with the status gate in `bouncycastle-core`, or KATs in
+//! the algorithm crates behind their `fips` features and aggregated here).
+//!
+//! An application that needs the self-tests depends on this crate, calls
+//! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
+//! Until an algorithm's self-test has passed, its services refuse to be created: where the
+//! constructor already returns a `Result` (an AES key from key material) it returns
+//! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`]; where it is
+//! infallible (`SHA256::new()`, a one-shot `hash()`) it panics. No self-test runs before `main`.
+//!
+//! The cargo features select which algorithms are self-tested and gated:
+//!
+//! | Feature | Self-tested algorithm | Services gated |
+//! |---|---|---|
+//! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
+//! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256 |
+//!
+//! # Usage Examples
+//!
+//! ```no_run
+//! use bouncycastle_fips::{power_on_self_tests, self_test_status, SelfTestStatus, SelfTestedAlgorithm};
+//!
+//! // At startup, before any AES or SHA-2 service is created.
+//! if let Err(e) = power_on_self_tests() {
+//!     panic!("FIPS self-tests failed: {e:?}");
+//! }
+//! assert_eq!(self_test_status(SelfTestedAlgorithm::AES), SelfTestStatus::Passed);
+//! ```
+//!
+//! # Requirements
+//!
+//! Read from *Implementation Guidance for FIPS 140-3 and the Cryptographic Module Validation
+//! Program* (NIST CMVP), last update 2026-08-19, downloaded 2026-11-10 from
+//! <https://csrc.nist.gov/csrc/media/Projects/cryptographic-module-validation-program/documents/fips%20140-3/FIPS%20140-3%20IG.pdf>.
+//! The self-test section is **IG 10.3.A, "Cryptographic Algorithm Self-Test Requirements"**
+//! (last modified 2026-08-19); bracketed numbers are the ISO/IEC 19790:2012 shall-statements
+//! the IG quotes.
+//!
+//! When:
+//! * A CAST is performed "prior to the first operational use of the cryptographic algorithm"
+//!   (§7.10.3.2 [10.27]), and pass or fail is decided by the module "without external controls,
+//!   externally provided input [test] text vectors, expected output results, or operator
+//!   intervention" (§7.10.1 [10.01], [10.02]): vectors and answers are compiled in.
+//! * The CAST of an algorithm must have run before *any* of its services is used, even when it
+//!   exercises a different mode or key size (GeneralNote4: one AES GCM CAST covering GCM and ECB
+//!   "shall be performed prior to the first use of either"). Different functions of one algorithm
+//!   may be self-tested at different times, each before its own first use (GeneralNote4, second
+//!   paragraph).
+//! * Re-running is a periodic self-test (IG 10.3.E). At Security Levels 1 and 2 "a provided
+//!   service, resetting, rebooting or power cycling" are acceptable triggers; Levels 3 and 4
+//!   must re-run automatically on a defined period [10.54]. A repeated CAST "may be run in the
+//!   background without the need for inhibiting data output" (IG 10.3.E Resolution 5).
+//! * A service that performs on-demand self-tests needs an approved service indicator; re-running
+//!   by restart does not (IG 2.4.C).
+//!
+//! What, for AES (IG 10.3.A Resolution 1):
+//! * The smallest approved key length the module supports [10.29], and one the module offers as
+//!   a service (GeneralNote5): AES-128.
+//! * One authenticated mode from GCM, CCM, CMAC or GMAC (1.d(i)), self-tested in both directions
+//!   as separate CASTs (1.a, 1.b). That covers KW/KWP (1.d(ii)) and the confidentiality-only
+//!   modes ECB, CBC, CFB, CTR (1.d(iii)).
+//! * The forward cipher at least once and the inverse cipher at least once (1.c). GCM uses only the
+//!   forward cipher, so a decryption CAST on a mode whose decryption uses the inverse cipher
+//!   ("ECB, CBC, XTS, KW, KWP") is also needed. Encrypt and decrypt "do not need to be performed
+//!   for each mode(s) that is selected to meet this cipher function requirement".
+//! * 1.d asks for the authenticated-mode CAST "for each underlying algorithm implementation (i.e.
+//!   AES and Triple-DES)"; `bouncycastle-aes` has a single (bit-sliced, software) AES.
+//!
+//! What, for SHA-2 (IG 10.3.A Resolution 2): "a CAST for SHA-256 is required" and "a CAST for
+//! SHA-512 is required". SHA-224 needs its own only "if SHA-224 is implemented without SHA-256",
+//! SHA-384 only "if SHA-384 is implemented without SHA-512", SHA-512/224 or /256 only "if the
+//! SHA-512 CAST is not performed". A SHA-1 CAST is required if SHA-1 is implemented; bc-rust
+//! has none.
+//!
+//! On failure:
+//! * A known-answer test whose output differs from the known answer "shall fail" (§7.10.3.2
+//!   [10.28]). An answer may be compared through a hash only if that hash has itself been
+//!   self-tested first (GeneralNote7).
+//! * The module goes into an error state and inhibits data output (AS03.07, as IG 1.B and IG
+//!   10.3.E Resolution 5 cite it; GeneralNote6 says the same for comparison tests). Per AS10.07
+//!   as IG 1.B applies it, a failed self-test puts the *entire* module in the error state, not
+//!   just the failed algorithm.
+//! * **Not in the IG:** the text of AS10.07 to AS10.11 (ISO/IEC 19790:2012 §7.10.1 and ISO/IEC
+//!   24759), which state the error-state behaviour, the error indicator and how a module leaves
+//!   the error state. Those documents are not freely available, and nothing here is filled in
+//!   from memory: whether a passing re-run may clear a failure, or only a restart may, is open.
+//!
+//! # Known-answer vectors
+//!
+//! The minimal set the requirements above call for. All values hex; every one was checked
+//! against the source named.
+//!
+//! | CAST | Covers | Source | Inputs | Expected |
+//! |---|---|---|---|---|
+//! | SHA-256 | SHA-256, SHA-224 | CAVP SHAVS byte-oriented (CAVS 11.0), `bc-test-data/crypto/sha2/byte-oriented/SHA256ShortMsg.rsp`, `[L = 32]`, `Len = 24` | Msg `b4190e` | `dff2e73091f6c05e528896c4c831b9448653dc2ff043528f6769437bc7b975c2` |
+//! | SHA-512 | SHA-512, SHA-384, SHA-512/224, SHA-512/256 | same suite, `SHA512ShortMsg.rsp`, `[L = 64]`, `Len = 24` | Msg `0a55db` | `7952585e5330cb247d72bae696fc8a6b0f7d0804577e347d99bc1b11e52f384985a428449382306a89261ae143c2f3fb613804ab20b42dc097e5bf4a96ef919b` |
+//! | AES-GCM-128 encrypt | 1.a, 1.d(i), forward cipher (1.c) | CAVP `gcmtestvectors.zip` (CAVS 14.0), `bc-test-data/crypto/aes_tdes_vectors/GCM/cavp/gcmEncryptExtIV128.rsp`, `[Keylen = 128] [IVlen = 96] [PTlen = 128] [AADlen = 128] [Taglen = 128]`, `Count = 0` | Key `c939cc13397c1d37de6ae0e1cb7c423c`, IV `b3d8cc017cbb89b39e0f67e2`, PT `c3b3c41f113a31b73d9a5cd432103069`, AAD `24825602bd12a984e0092d3e448eda5f` | CT `93fe7d9e9bfd10348a5606e5cafa7354`, Tag `0032a1dc85f1c9786925a2e71d8272dd` |
+//! | AES-GCM-128 decrypt | 1.b | the same vector, decrypting CT and Tag (1.b: "the data could be the encrypted value computed during the encryption test") | Key, IV, AAD, CT, Tag as above | PT as above, tag accepted |
+//! | AES-CBC-128 decrypt | inverse cipher (1.c) | NIST SP 800-38A (2001), Appendix F.2.2 "CBC-AES128.Decrypt" | Key `2b7e151628aed2a6abf7158809cf4f3c`, IV `000102030405060708090a0b0c0d0e0f`, CT `7649abac8119b246cee98e9b12e9197d` `5086cb9b507219ee95db113a917678b2` `73bed6b8e3c1743b7116e69e22229516` `3ff1caa1681fac09120eca307586e1a7` | PT `6bc1bee22e409f96e93d7e117393172a` `ae2d8a571e03ac9c9eb76fac45af8e51` `30c81c46a35ce411e5fbc1191a0a52ef` `f69f2445df4f9b17ad2b417be66c3710` |
+//!
+//! Not needed: a CBC encryption CAST (the forward cipher is covered by GCM encryption, 1.c), and
+//! CASTs for AES-192/256, other modes, SHA-224, SHA-384 or SHA-512/t (covered above).
+//!
+//! # Feature unification
+//!
+//! Cargo unifies the features of a package across everything built together, so if any
+//! workspace member turned on `bouncycastle-aes/fips`, every AES test in `cargo test --workspace`
+//! would run gated, find no self-test run, and fail. This crate is therefore **excluded from the
+//! root workspace** (`exclude = ["crypto/fips"]`) and is its own workspace root, the way
+//! `dev_scripts/aes_ct_harness` is:
+//!
+//! * `cargo build --workspace` / `cargo test --workspace` never build it and see no `fips`
+//!   feature. Build and test it with `cargo test --manifest-path crypto/fips/Cargo.toml`
+//!   (add `--no-default-features --features aes` and so on for one algorithm). It has its own
+//!   `target/` and `Cargo.lock`, both ignored by git.
+//! * No workspace member may depend on it, or on an algorithm crate's `fips` feature, except
+//!   behind an off-by-default feature of its own (for example a CLI self-test command). Such a
+//!   feature is then built on its own, never with `--all-features` across the workspace.
+//! * `cargo mutants` no longer passes `--all-features` (`.cargo/mutants.toml`), which would turn
+//!   on a crate's own `fips` feature under `-p`. The `fips` code is mutated with an explicit
+//!   `--features fips` on the crate that owns it.
+//!
+//! # Memory Usage
+//!
+//! To be measured once the self-tests have bodies.
+//!
+//! # 🚨 Security Considerations 🚨
+//!
+//! The self-tests detect a faulty implementation; they say nothing about how the algorithms are
+//! used. Nothing is gated until [`power_on_self_tests`] is called *and* this crate is linked:
+//! a program that does not depend on `bouncycastle-fips` uses the algorithms ungated.
+
+#![no_std]
+#![forbid(unsafe_code)]
+#![forbid(missing_docs)]
+
+pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
+
+// The algorithm crates the features pull in; the self-tests that use them are still stubs.
+#[cfg(feature = "aes")]
+use bouncycastle_aes as _;
+#[cfg(feature = "sha2")]
+use bouncycastle_sha2 as _;
+
+/// The algorithms whose self-tests this build runs, in the order they run: those of the
+/// enabled cargo features, hashes first.
+pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
+    #[cfg(feature = "sha2")]
+    SelfTestedAlgorithm::SHA256,
+    #[cfg(feature = "sha2")]
+    SelfTestedAlgorithm::SHA512,
+    #[cfg(feature = "aes")]
+    SelfTestedAlgorithm::AES,
+];
+
+/// Runs the self-test of every algorithm in [`SELF_TESTED`] that has not passed yet. Call once at
+/// startup, before creating any service of those algorithms; calling it again after it succeeded
+/// does nothing.
+///
+/// # Errors
+///
+/// [`SelfTestError::KnownAnswerMismatch`] for the first algorithm whose self-test fails. Every
+/// gated service then refuses to be created.
+pub fn power_on_self_tests() -> Result<(), SelfTestError> {
+    todo!("filled in by the self-test layout prototypes")
+}
+
+/// Runs the self-test of every algorithm in [`SELF_TESTED`] again, whether or not it passed
+/// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E).
+///
+/// # Errors
+///
+/// As [`power_on_self_tests`].
+pub fn run_self_tests() -> Result<(), SelfTestError> {
+    todo!("filled in by the self-test layout prototypes")
+}
+
+/// The current status of `algorithm`'s self-test. An algorithm this build does not self-test
+/// (not in [`SELF_TESTED`]) is always [`SelfTestStatus::NotRun`].
+pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
+    let _ = algorithm;
+    todo!("filled in by the self-test layout prototypes")
+}
