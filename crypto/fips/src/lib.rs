@@ -6,7 +6,8 @@
 //!
 //! An application that needs the self-tests depends on this crate, calls
 //! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
-//! Until an algorithm's self-test has passed, its services refuse to be created: where the
+//! Until an algorithm's self-test has passed, its services refuse to be created, and once any
+//! self-test has failed, every gated service refuses until the program restarts: where the
 //! constructor already returns a `Result` (an AES key from key material) it returns
 //! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`]; where it is
 //! infallible (`SHA256::new()`, a one-shot `hash()`) it panics. No self-test runs before `main`.
@@ -85,8 +86,9 @@
 //!   just the failed algorithm.
 //! * **Not in the IG:** the text of AS10.07 to AS10.11 (ISO/IEC 19790:2012 §7.10.1 and ISO/IEC
 //!   24759), which state the error-state behaviour, the error indicator and how a module leaves
-//!   the error state. Those documents are not freely available, and nothing here is filled in
-//!   from memory: whether a passing re-run may clear a failure, or only a restart may, is open.
+//!   the error state. Those documents are not freely available. Project decision (2026-11-10), in
+//!   their absence: a failure of any self-test blocks every gated algorithm, and only a restart
+//!   of the program leaves the error state; a later run of the self-tests does not clear it.
 //!
 //! # Known-answer vectors
 //!
@@ -117,8 +119,9 @@
 //!   (add `--no-default-features --features aes` and so on for one algorithm). It has its own
 //!   `target/` and `Cargo.lock`, both ignored by git.
 //! * No workspace member may depend on it, or on an algorithm crate's `fips` feature, except
-//!   behind an off-by-default feature of its own (for example a CLI self-test command). Such a
-//!   feature is then built on its own, never with `--all-features` across the workspace.
+//!   behind an off-by-default feature of its own (for example a CLI self-test command). CI's
+//!   `cargo build --workspace --all-features` still compiles such a feature, which is harmless;
+//!   its tests run on their own, never under `--all-features` across the workspace.
 //! * `cargo mutants` no longer passes `--all-features` (`.cargo/mutants.toml`), which would turn
 //!   on a crate's own `fips` feature under `-p`. The `fips` code is mutated with an explicit
 //!   `--features fips` on the crate that owns it.
@@ -162,14 +165,17 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
 ///
 /// # Errors
 ///
-/// [`SelfTestError::KnownAnswerMismatch`] for the first algorithm whose self-test fails. Every
-/// gated service then refuses to be created.
+/// [`SelfTestError::KnownAnswerMismatch`] for the first algorithm whose self-test fails; every
+/// gated service then refuses to be created until the program restarts. After such a failure,
+/// [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`] for the failed algorithm, without
+/// running anything.
 pub fn power_on_self_tests() -> Result<(), SelfTestError> {
     todo!("filled in by the self-test layout prototypes")
 }
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] again, whether or not it passed
-/// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E).
+/// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E). It cannot clear a failure;
+/// only a restart does.
 ///
 /// # Errors
 ///
