@@ -58,7 +58,8 @@ fn failing_aes_kat_blocks_every_service_until_restart() {
     assert_eq!(self_test_status(SelfTestedAlgorithm::AES), SelfTestStatus::Failed);
 
     // AES key creation is refused, in every mode.
-    let k16 = KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
+    let k16 =
+        KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
     assert_eq!(
         AES128Key::<GCM>::from_key_material(&k16).err(),
         Some(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::Failed))

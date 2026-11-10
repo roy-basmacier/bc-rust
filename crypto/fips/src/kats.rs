@@ -9,10 +9,10 @@
 //! The vectors are parameters rather than read from `crate::vectors` here, so that this crate's
 //! failure-path test can run the same code on a corrupted copy of one.
 
-#[cfg(feature = "aes")]
-use crate::vectors::{CbcKat, GcmKat};
 #[cfg(feature = "sha2")]
 use crate::vectors::HashKat;
+#[cfg(feature = "aes")]
+use crate::vectors::{CbcKat, GcmKat};
 
 /// The SHA-256 CAST (FIPS 140-3 IG 10.3.A Resolution 2), which also covers SHA-224.
 #[cfg(feature = "sha2")]
@@ -53,9 +53,7 @@ pub(crate) fn aes(gcm: &GcmKat, cbc: &CbcKat) -> bool {
 
 /// The vector's key as AES-128 key material.
 #[cfg(feature = "aes")]
-fn key_material(
-    key: &[u8; 16],
-) -> Option<bouncycastle_core::key_material::KeyMaterial128> {
+fn key_material(key: &[u8; 16]) -> Option<bouncycastle_core::key_material::KeyMaterial128> {
     use bouncycastle_core::key_material::{KeyMaterial128, KeyType};
 
     KeyMaterial128::from_bytes_as_type(key, KeyType::SymmetricCipherKey).ok()

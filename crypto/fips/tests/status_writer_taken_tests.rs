@@ -18,7 +18,8 @@ fn a_writer_that_writes_first_can_mark_passed_and_the_self_tests_then_refuse() {
     use bouncycastle_core::key_material::{KeyMaterial, KeyType};
     use bouncycastle_core::symmetric_key::FromKeyMaterial;
 
-    let k16 = KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
+    let k16 =
+        KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
     assert!(AES128Key::<GCM>::from_key_material(&k16).is_err());
 
     // Any crate can do this before the self-tests first run, and AES is then usable untested.

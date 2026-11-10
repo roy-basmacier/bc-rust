@@ -24,10 +24,14 @@ fn aes_keys_of_every_mode_and_size_are_refused() {
     use bouncycastle_core::key_material::{KeyMaterial, KeyType};
     use bouncycastle_core::symmetric_key::FromKeyMaterial;
 
-    const REFUSED: SymmetricCipherError = SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::NotRun);
-    let k16 = KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
-    let k24 = KeyMaterial::<24>::from_bytes_as_type(&[0x42; 24], KeyType::SymmetricCipherKey).unwrap();
-    let k32 = KeyMaterial::<32>::from_bytes_as_type(&[0x42; 32], KeyType::SymmetricCipherKey).unwrap();
+    const REFUSED: SymmetricCipherError =
+        SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::NotRun);
+    let k16 =
+        KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey).unwrap();
+    let k24 =
+        KeyMaterial::<24>::from_bytes_as_type(&[0x42; 24], KeyType::SymmetricCipherKey).unwrap();
+    let k32 =
+        KeyMaterial::<32>::from_bytes_as_type(&[0x42; 32], KeyType::SymmetricCipherKey).unwrap();
 
     assert_eq!(AES128Key::<GCM>::from_key_material(&k16).err(), Some(REFUSED));
     assert_eq!(AES192Key::<CTR>::from_key_material(&k24).err(), Some(REFUSED));

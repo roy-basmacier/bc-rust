@@ -23,14 +23,16 @@ fn use_services() {
             FromKeyMaterial,
         };
 
-        let k16 = KeyMaterial::<16>::from_bytes_as_type(&[7; 16], KeyType::SymmetricCipherKey).unwrap();
+        let k16 =
+            KeyMaterial::<16>::from_bytes_as_type(&[7; 16], KeyType::SymmetricCipherKey).unwrap();
         let gcm = AES128Key::<GCM>::from_key_material(&k16).expect("AES-128 GCM key");
         let mut data = *b"sixteen byte msg";
         let tag = gcm.encrypt_detached_in_place_nonce(&[1; 12], b"aad", &mut data).unwrap();
         gcm.decrypt_detached_in_place(&[1; 12], b"aad", &mut data, &tag).unwrap();
         assert_eq!(&data, b"sixteen byte msg");
 
-        let k32 = KeyMaterial::<32>::from_bytes_as_type(&[9; 32], KeyType::SymmetricCipherKey).unwrap();
+        let k32 =
+            KeyMaterial::<32>::from_bytes_as_type(&[9; 32], KeyType::SymmetricCipherKey).unwrap();
         let cbc = AES256Key::<CBC<Blocks>>::from_key_material(&k32).expect("AES-256 CBC key");
         let mut block = [0x5a; 16];
         cbc.encrypt_inplace_nonce(&[2; 16], &mut block).unwrap();
