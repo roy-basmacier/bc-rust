@@ -175,6 +175,14 @@
 //! * Verified against FIPS 197 Appendix A (all three key expansions, every word), FIPS 197
 //!   Appendix B, NIST SP 800-38A Appendix F.1 (ECB, all three key lengths, both directions), and
 //!   the NIST ACVP `ACVP-AES-ECB` vectors.
+//!
+//! # FIPS 140-3 self-test
+//!
+//! With the off-by-default `fips` cargo feature, the crate carries its own known-answer self-test,
+//! `self_test()`, and every AES key constructor returns `SymmetricCipherError::SelfTestNotPassed`
+//! until it has passed. `self_test_status()` reports where it stands, and
+//! `self_test_enter_error_state()` stops AES for good. An application normally enables the
+//! feature through `bouncycastle-fips` and runs the self-test through that crate.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -198,6 +206,8 @@ mod kw;
 mod round;
 mod sbox;
 mod schedule;
+#[cfg(feature = "fips")]
+mod self_test;
 
 use bouncycastle_utils::secret::{NoPadding, ZeroizablePrimitive};
 
@@ -285,3 +295,5 @@ pub use gcm::{AES_GCM_128, AES_GCM_192, AES_GCM_256, GCM_NONCE_LEN};
 pub use gmac::{AES_GMAC_128, AES_GMAC_192, AES_GMAC_256};
 pub use key::{AES128Key, AES192Key, AES256Key};
 pub use kw::{AES_KW_128, AES_KW_192, AES_KW_256, AES_KWP_128, AES_KWP_192, AES_KWP_256};
+#[cfg(feature = "fips")]
+pub use self_test::{self_test, self_test_enter_error_state, self_test_status};

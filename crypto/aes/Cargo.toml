@@ -3,6 +3,11 @@ name = "bouncycastle-aes"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# The FIPS 140-3 self-test (`self_test()`) and the gate that refuses every AES key until it has
+# passed. Off by default; turned on by `bouncycastle-fips`.
+fips = ["bouncycastle-core/fips"]
+
 [dependencies]
 bouncycastle-core.workspace = true
 bouncycastle-utils.workspace = true
