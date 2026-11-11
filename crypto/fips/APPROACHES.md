@@ -22,7 +22,8 @@ is marked unverified. [How each figure was obtained](#how-this-was-checked) is a
 in the crate that implements the algorithm), **with three changes** taken from what variant A does
 better and from the findings below: one shared status type in `core` (with an unwind guard)
 instead of a copy of the state machine per crate, a one-way module error latch in `core`, and a
-power-on call that does not report an overlapping run as an error. [Details](#recommendation).
+power-on call that does not report an overlapping run as an error. A fourth, a gate that admits
+only `Passed`, was put as a decision and approved. [Details](#recommendation).
 
 The deciding fact: in A, any crate that writes to the status table before `bouncycastle-fips`
 does can record `Passed` for an algorithm that was never tested (finding [A-1](#findings)). That
@@ -32,8 +33,8 @@ one crate only. In B nothing outside the algorithm crate can produce `Passed`.
 
 Neither is ready as it stands: A and B have five findings each, and share six more.
 
-The user's [decisions](#decisions-needed-before-convergence) come last; the first one (whether an
-algorithm crate may have a `pub fn self_test()` at all) can reverse the recommendation.
+The [decisions](#decisions-needed-before-convergence) at the end were answered on 2026-11-10:
+B, with all four changes, and a failure must also stop keys and hashes that already exist.
 
 ## What the two variants have in common
 
@@ -287,8 +288,8 @@ following as well; none of it is addressed.
 
 ## Recommendation
 
-Converge on **variant B's ownership model**, with changes 1 to 3 below; the fourth needs a
-decision first. Each answers a finding.
+Converge on **variant B's ownership model**, with the four changes below (the fourth was
+decision 3, since answered yes). Each answers a finding.
 
 1. **One status type in `core`, one instance per algorithm crate.** Move the claim/finish state
    machine into `SelfTestStatusCell` (`begin`, `finish`, a guard that records `Failed` if dropped
@@ -305,8 +306,8 @@ decision first. Each answers a finding.
    single-feature builds too.
 4. **Close the first-run window** (S-1), which only an embedded KAT can do: let the KAT use a
    crate-private entry that skips the gate, and have the gate admit `Passed` only. This is the
-   one change that departs from "the KAT uses the public API only", so it is
-   [decision 3](#decisions-needed-before-convergence) rather than part of the recommendation.
+   one change that departs from "the KAT uses the public API only", so it was
+   put as [decision 3](#decisions-needed-before-convergence); the answer is yes.
 
 Keep from A: the `bouncycastle-fips` test that checks every byte of every vector matters, and the
 single vector table in the `bouncycastle-fips` docs as the one place that justifies the choices.
@@ -316,39 +317,66 @@ record failures, which A's single writer forbids. A's real advantages (tiny algo
 diffs, compiler-enforced public-API-only KATs, one place for vectors) are about review cost; B's
 are about what the gate can be trusted to mean.
 
-If decision 1 goes against a `pub fn self_test()` in algorithm crates, the fallback is A with the
-write function reduced to the one-way latch plus a `Passed` that only `bouncycastle-fips` can
-set, and A-1 accepted and documented as it is now.
-
 ## Decisions needed before convergence
+
+All nine were answered on 2026-11-10; each answer follows its question.
 
 1. **May an algorithm crate export `self_test()` and a status function?** The parent task says
    "Dont use anything internal in crates (no pub for kats)". If that means "KATs must not need
    internals made public", both variants comply and the recommendation stands. If it means "no
    self-test items in an algorithm crate's public API", only A complies. *Recommended: the first
    reading; choose B.*
+   **Decided:** The first reading: KATs must not need internals made public.
 2. **Layout: B as amended, or A?** *Recommended: B with changes 1 to 3.*
+   **Decided:** B.
 3. **May an embedded KAT bypass the gate through a crate-private entry**, so that the gate admits
    only `Passed` and S-1 goes away? The alternative is to keep S-1 as a documented rule ("finish
    power-on before starting threads"). *Recommended: yes.*
+   **Decided:** Yes.
 4. **Explicit call, lazy, or both?** *Recommended: keep the explicit `power_on_self_tests`, and
    decide on lazy-on-first-use after change 1, since it then costs a few lines per gate.*
+   **Decided:** As recommended: keep the explicit call; decide on lazy once the shared status
+   type exists.
 5. **Does a failure stop existing keys and hashes, or only new ones** (S-2)? Stopping existing
    ones means a check on every `do_update` / encrypt call, or a process abort on failure.
    *Recommended: abort-on-failure as an opt-in, and document creation-only gating otherwise;
    confirm against ISO/IEC 19790 before a validation.*
+   **Decided:** Not as recommended. A failure of any self-test must stop the use of all keys and
+   hashes, existing and new, across the whole module.
 6. **`SHA256::new()` before power-on: keep the panic?** *Recommended: yes, plus a
    `SuspendableError` variant so `from_suspended` returns it instead of panicking.*
+   **Decided:** Yes, with the `SuspendableError` variant.
 7. **A `fips` cargo feature, or a build-wide `--cfg`?** A feature is switched on for the whole
    build by any one dependency, which is why this crate sits outside the workspace. A `cfg` set
    through `RUSTFLAGS` is chosen by whoever builds the final binary and by nobody else. Not
    prototyped. *Recommended: keep the feature for now; revisit with the module boundary.*
+   **Decided:** Keep the feature for now.
 8. **Scope of step 5/5**: AES and SHA-2 only, or also the HMAC CAST (S-5), without which
    HMAC-SHA-2 is usable unvalidated in a `fips` build? *Recommended: add the HMAC CAST; it is one
    vector and settles where generic crates' KATs live.*
+   **Decided:** Not as recommended. AES and SHA-2 only for now.
 9. **Is a FIPS 140-3 validation an actual goal, and at which security level?** It decides whether
    the integrity test, the service indicator and the boundary question above are next, or whether
    the self-tests are a robustness feature and stop here.
+   **Decided:** Yes, a validation is the goal, at Security Level 1.
+
+What the answers add to the recommendation:
+
+* **Decision 5 moves the gate from creation to use.** Finding S-2 becomes a requirement: every
+  operation on an existing key, worker or hash must read the module error latch, not only the
+  constructors. Two things follow that convergence has to settle. The AES workers are in
+  `bouncycastle-cipher`, which is generic over the permutation, so the check goes either in the
+  AES block calls or in the mode workers under a `fips` feature of that crate. And most of those
+  operations (`do_update`, a hash's `do_final`) return no `Result`, so there a refusal can only
+  be a panic. The cost of a check per call was not measured.
+* **Decision 8 leaves S-5 open.** Until HMAC has its CAST, HMAC-SHA-2 (and HKDF, and the DRBG)
+  cannot be listed as approved services of a `fips` build, although nothing stops their use.
+* **Decision 9, Level 1.** `run_self_tests` or a restart is an acceptable periodic self-test (IG
+  10.3.E: "At security levels 1 and 2, acceptable means for initiating the periodic self-tests
+  include a provided service, resetting, rebooting or power cycling"), and the error log of IG
+  10.3.D does not apply (Levels 3 and 4). The integrity test, the service indicator and the
+  module boundary in [the table above](#what-a-fips-140-3-module-still-needs) are what a
+  validation needs next.
 
 ## How this was checked
 
