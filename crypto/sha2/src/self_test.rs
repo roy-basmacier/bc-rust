@@ -27,19 +27,16 @@
 //! telling the application to run the power-on self-tests before creating any service.
 
 use bouncycastle_core::fips::{
-    SelfTestError, SelfTestStatus, SelfTestedAlgorithm, enter_error_state, error_state,
+    SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
 };
 use bouncycastle_core::traits::Hash;
-use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::{SHA256, SHA512};
 
-/// The SHA-256 self-test status (gating SHA-224 and SHA-256), as [`SelfTestStatus::as_u8`].
-/// Written only in this module.
-static SHA256_STATUS: AtomicU8 = AtomicU8::new(SelfTestStatus::NotRun.as_u8());
-/// The SHA-512 self-test status (gating SHA-384, SHA-512 and SHA-512/t), as
-/// [`SelfTestStatus::as_u8`]. Written only in this module.
-static SHA512_STATUS: AtomicU8 = AtomicU8::new(SelfTestStatus::NotRun.as_u8());
+/// The SHA-256 self-test status, gating SHA-224 and SHA-256. Only [`run`] runs it.
+static SHA256_STATUS: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::SHA256);
+/// The SHA-512 self-test status, gating SHA-384, SHA-512 and SHA-512/t. Only [`run`] runs it.
+static SHA512_STATUS: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::SHA512);
 
 /// A message and its digest.
 #[derive(Clone, Copy)]
@@ -112,7 +109,7 @@ pub fn self_test() -> Result<(), SelfTestError> {
 /// [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any self-tested algorithm has
 /// failed.
 pub fn sha256_self_test_status() -> SelfTestStatus {
-    status(&SHA256_STATUS)
+    SHA256_STATUS.get()
 }
 
 /// Where the SHA-512 self-test, which gates SHA-384, SHA-512, SHA-512/224 and SHA-512/256, stands.
@@ -120,7 +117,7 @@ pub fn sha256_self_test_status() -> SelfTestStatus {
 /// [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any self-tested algorithm has
 /// failed.
 pub fn sha512_self_test_status() -> SelfTestStatus {
-    status(&SHA512_STATUS)
+    SHA512_STATUS.get()
 }
 
 /// The gate in every SHA-224 / SHA-256 constructor (`SHA256Internal::new` and `from_suspended`).
@@ -135,8 +132,8 @@ pub(crate) fn require_sha512_passed() {
     require_passed(&SHA512_STATUS, SelfTestedAlgorithm::SHA512);
 }
 
-fn require_passed(cell: &AtomicU8, algorithm: SelfTestedAlgorithm) {
-    match status(cell) {
+fn require_passed(cell: &SelfTestStatusCell, algorithm: SelfTestedAlgorithm) {
+    match cell.get() {
         // Running: the KAT's own hashes come through here (see the module docs).
         SelfTestStatus::Passed | SelfTestStatus::Running => {}
         other => panic!(
@@ -147,71 +144,11 @@ fn require_passed(cell: &AtomicU8, algorithm: SelfTestedAlgorithm) {
     }
 }
 
-fn status(cell: &AtomicU8) -> SelfTestStatus {
-    if error_state().is_some() {
-        return SelfTestStatus::Failed;
-    }
-    // Only this module writes the statuses, and only `as_u8` values; `Failed` is the safe reading
-    // should that ever stop being true.
-    SelfTestStatus::from_u8(cell.load(Ordering::Acquire)).unwrap_or(SelfTestStatus::Failed)
-}
-
 /// [`self_test`] over the given answers, so that the unit test can check a wrong answer fails.
 /// SHA-256 first, the order of [`SelfTestedAlgorithm::ALL`].
 fn run(sha256: &HashKat<32>, sha512: &HashKat<64>) -> Result<(), SelfTestError> {
-    begin(&SHA256_STATUS, SelfTestedAlgorithm::SHA256)?;
-    finish(&SHA256_STATUS, SelfTestedAlgorithm::SHA256, sha256_matches(sha256))?;
-    begin(&SHA512_STATUS, SelfTestedAlgorithm::SHA512)?;
-    finish(&SHA512_STATUS, SelfTestedAlgorithm::SHA512, sha512_matches(sha512))
-}
-
-/// Claims a run: NotRun or Passed becomes Running, atomically, so that two threads calling
-/// [`self_test`] at once do not both run it. Failed and Running refuse.
-fn begin(cell: &AtomicU8, algorithm: SelfTestedAlgorithm) -> Result<(), SelfTestError> {
-    if error_state().is_some() {
-        return Err(SelfTestError::NotPassed(algorithm, SelfTestStatus::Failed));
-    }
-    let mut current = cell.load(Ordering::Acquire);
-    loop {
-        match SelfTestStatus::from_u8(current) {
-            Some(SelfTestStatus::NotRun | SelfTestStatus::Passed) => {}
-            Some(other) => return Err(SelfTestError::NotPassed(algorithm, other)),
-            None => return Err(SelfTestError::NotPassed(algorithm, SelfTestStatus::Failed)),
-        }
-        match cell.compare_exchange_weak(
-            current,
-            SelfTestStatus::Running.as_u8(),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return Ok(()),
-            Err(actual) => current = actual,
-        }
-    }
-}
-
-/// Records the outcome of a run that [`begin`] claimed. A failure stops the whole module.
-fn finish(
-    cell: &AtomicU8,
-    algorithm: SelfTestedAlgorithm,
-    passed: bool,
-) -> Result<(), SelfTestError> {
-    if !passed {
-        cell.store(SelfTestStatus::Failed.as_u8(), Ordering::Release);
-        enter_error_state(algorithm);
-        return Err(SelfTestError::KnownAnswerMismatch(algorithm));
-    }
-    // Running -> Passed only; the error state, if another algorithm entered it during the run,
-    // still wins, since `status` reads it first.
-    match cell.compare_exchange(
-        SelfTestStatus::Running.as_u8(),
-        SelfTestStatus::Passed.as_u8(),
-        Ordering::AcqRel,
-        Ordering::Acquire,
-    ) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(SelfTestError::NotPassed(algorithm, SelfTestStatus::Failed)),
-    }
+    SHA256_STATUS.run(|| sha256_matches(sha256))?;
+    SHA512_STATUS.run(|| sha512_matches(sha512))
 }
 
 fn sha256_matches(kat: &HashKat<32>) -> bool {

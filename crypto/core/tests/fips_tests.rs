@@ -26,20 +26,49 @@ fn status_u8_encoding_round_trips_and_rejects_other_values() {
 }
 
 #[test]
-fn status_cell_starts_not_run_and_holds_what_was_set() {
-    static CELL: SelfTestStatusCell = SelfTestStatusCell::new();
+fn status_cell_starts_not_run_and_passes_when_the_kat_does() {
+    static CELL: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::AES);
     assert_eq!(CELL.get(), SelfTestStatus::NotRun);
-    assert_eq!(SelfTestStatusCell::default().get(), SelfTestStatus::NotRun);
-    for status in STATUSES {
-        CELL.set(status);
-        assert_eq!(CELL.get(), status);
-    }
+    let mut seen = None;
+    assert_eq!(
+        CELL.run(|| {
+            seen = Some(CELL.get());
+            true
+        }),
+        Ok(())
+    );
+    assert_eq!(seen, Some(SelfTestStatus::Running), "Running while the KAT runs");
+    assert_eq!(CELL.get(), SelfTestStatus::Passed);
+    // A re-run from Passed runs the KAT again.
+    let mut runs = 0;
+    assert_eq!(
+        CELL.run(|| {
+            runs += 1;
+            true
+        }),
+        Ok(())
+    );
+    assert_eq!(runs, 1);
+    assert_eq!(CELL.get(), SelfTestStatus::Passed);
 }
 
 #[test]
-fn status_cell_set_on_one_thread_is_seen_on_another() {
-    static CELL: SelfTestStatusCell = SelfTestStatusCell::new();
-    std::thread::spawn(|| CELL.set(SelfTestStatus::Passed)).join().unwrap();
+fn status_cell_refuses_a_second_run_while_one_is_in_progress() {
+    static CELL: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::SHA256);
+    let inner = CELL.run(|| {
+        assert_eq!(
+            CELL.run(|| unreachable!("a second run must not start")),
+            Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Running))
+        );
+        true
+    });
+    assert_eq!(inner, Ok(()));
+}
+
+#[test]
+fn status_cell_pass_on_one_thread_is_seen_on_another() {
+    static CELL: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::SHA512);
+    std::thread::spawn(|| CELL.run(|| true)).join().unwrap().unwrap();
     assert_eq!(CELL.get(), SelfTestStatus::Passed);
 }
 

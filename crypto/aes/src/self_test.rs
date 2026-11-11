@@ -34,18 +34,17 @@
 use bouncycastle_cipher::modes::{Blocks, CBC, GCM};
 use bouncycastle_core::errors::SymmetricCipherError;
 use bouncycastle_core::fips::{
-    SelfTestError, SelfTestStatus, SelfTestedAlgorithm, enter_error_state, error_state,
+    SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
 };
 use bouncycastle_core::key_material::{KeyMaterial, KeyType};
 use bouncycastle_core::symmetric_key::{
     AeadDecryptionKey, AeadEncryptionKey, BlockDecryptionKey, FromKeyMaterial,
 };
-use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::AES128Key;
 
-/// The AES self-test status, as [`SelfTestStatus::as_u8`]. Written only in this module.
-static STATUS: AtomicU8 = AtomicU8::new(SelfTestStatus::NotRun.as_u8());
+/// The AES self-test status. Only [`run`] runs it, so only the AES KAT can make it `Passed`.
+static STATUS: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::AES);
 
 /// One set of the AES known-answer values; see the module docs for their sources.
 #[derive(Clone, Copy)]
@@ -163,85 +162,24 @@ pub fn self_test() -> Result<(), SelfTestError> {
 /// while a run is in progress, [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any
 /// self-tested algorithm has failed, not only AES.
 pub fn self_test_status() -> SelfTestStatus {
-    status()
+    STATUS.get()
 }
 
 /// The gate every AES key constructor passes through, from the key checks in
 /// `AESInternal::validate`.
 pub(crate) fn require_passed() -> Result<(), SymmetricCipherError> {
-    match status() {
+    match STATUS.get() {
         // Running: the KAT's own keys come through here (see the module docs).
         SelfTestStatus::Passed | SelfTestStatus::Running => Ok(()),
         other => Err(SymmetricCipherError::SelfTestNotPassed(other)),
     }
 }
 
-fn status() -> SelfTestStatus {
-    if error_state().is_some() {
-        return SelfTestStatus::Failed;
-    }
-    // Only this module writes STATUS, and only `as_u8` values; `Failed` is the safe reading
-    // should that ever stop being true.
-    SelfTestStatus::from_u8(STATUS.load(Ordering::Acquire)).unwrap_or(SelfTestStatus::Failed)
-}
-
 /// [`self_test`] over the given answers, so that the unit test can check a wrong answer fails.
 fn run(kat: &Kat) -> Result<(), SelfTestError> {
-    begin()?;
     // The three CASTs in the order of the bouncycastle-fips table; `&&` stops at the first
     // failure, which is all the result reports.
-    let passed = gcm_encrypt_matches(kat) && gcm_decrypt_matches(kat) && cbc_decrypt_matches(kat);
-    finish(passed)
-}
-
-/// Claims the run: NotRun or Passed becomes Running, atomically, so that two threads calling
-/// [`self_test`] at once do not both run it. Failed and Running refuse.
-fn begin() -> Result<(), SelfTestError> {
-    if error_state().is_some() {
-        return Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed));
-    }
-    let mut current = STATUS.load(Ordering::Acquire);
-    loop {
-        match SelfTestStatus::from_u8(current) {
-            Some(SelfTestStatus::NotRun | SelfTestStatus::Passed) => {}
-            Some(other) => return Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, other)),
-            None => {
-                return Err(SelfTestError::NotPassed(
-                    SelfTestedAlgorithm::AES,
-                    SelfTestStatus::Failed,
-                ));
-            }
-        }
-        match STATUS.compare_exchange_weak(
-            current,
-            SelfTestStatus::Running.as_u8(),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => return Ok(()),
-            Err(actual) => current = actual,
-        }
-    }
-}
-
-/// Records the outcome of a run that [`begin`] claimed.
-fn finish(passed: bool) -> Result<(), SelfTestError> {
-    if !passed {
-        STATUS.store(SelfTestStatus::Failed.as_u8(), Ordering::Release);
-        enter_error_state(SelfTestedAlgorithm::AES);
-        return Err(SelfTestError::KnownAnswerMismatch(SelfTestedAlgorithm::AES));
-    }
-    // Running -> Passed only; the error state, if another algorithm entered it during the run,
-    // still wins, since `status` reads it first.
-    match STATUS.compare_exchange(
-        SelfTestStatus::Running.as_u8(),
-        SelfTestStatus::Passed.as_u8(),
-        Ordering::AcqRel,
-        Ordering::Acquire,
-    ) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed)),
-    }
+    STATUS.run(|| gcm_encrypt_matches(kat) && gcm_decrypt_matches(kat) && cbc_decrypt_matches(kat))
 }
 
 /// A key (an `AES128Key<M>`) from 16 bytes of the KAT, through the public constructor; `None`

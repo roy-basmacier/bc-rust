@@ -1,9 +1,10 @@
 //! Types shared by the FIPS 140-3 cryptographic algorithm self-tests (CASTs).
 //!
-//! Only present with the `fips` cargo feature. These are vocabulary types: the status of one
-//! self-tested algorithm, which algorithm it is, and the errors a self-test or a gated service
-//! reports. Where a status is stored and which code may change it are left to the crate that
-//! runs the self-tests; `bouncycastle-fips` documents the requirements they implement.
+//! Only present with the `fips` cargo feature. The status of one self-tested algorithm and the
+//! cell that runs its known-answer test and records the result ([`SelfTestStatusCell`]), which
+//! algorithm it is, and the errors a self-test or a gated service reports. Each algorithm crate
+//! keeps its cell in a private `static`, so only that crate can run its self-test;
+//! `bouncycastle-fips` documents the requirements they implement.
 //!
 //! The one piece of state kept here is the module error state ([`enter_error_state`],
 //! [`error_state`]): a failure of any self-test stops every algorithm, so every crate's gate reads
@@ -28,7 +29,7 @@ pub enum SelfTestStatus {
 }
 
 impl SelfTestStatus {
-    /// The status as the `u8` that [`SelfTestStatusCell`] stores.
+    /// The status as a `u8`, the form [`SelfTestStatusCell`] stores it in.
     pub const fn as_u8(self) -> u8 {
         self as u8
     }
@@ -45,37 +46,107 @@ impl SelfTestStatus {
     }
 }
 
-/// A [`SelfTestStatus`] that can be read and written from several threads, for use in a
-/// `static`. Starts as [`SelfTestStatus::NotRun`].
+/// One algorithm's self-test status, for a private `static` in the crate that implements the
+/// algorithm: the only way to `Passed` is a [`SelfTestStatusCell::run`] whose known-answer test
+/// returned `true`, so the crate that owns the `static` decides what passing means.
 ///
-/// A write made with [`SelfTestStatusCell::set`] is seen by every later
-/// [`SelfTestStatusCell::get`] on any thread, together with everything the writing thread did
-/// before it.
+/// Starts as [`SelfTestStatus::NotRun`]. Once the module is in the error state
+/// ([`error_state`]) every cell reads [`SelfTestStatus::Failed`], whichever algorithm failed.
 #[derive(Debug)]
-pub struct SelfTestStatusCell(AtomicU8);
+pub struct SelfTestStatusCell {
+    status: AtomicU8,
+    algorithm: SelfTestedAlgorithm,
+}
 
 impl SelfTestStatusCell {
-    /// A cell holding [`SelfTestStatus::NotRun`].
-    pub const fn new() -> Self {
-        Self(AtomicU8::new(SelfTestStatus::NotRun.as_u8()))
+    /// A cell for `algorithm`'s self-test, holding [`SelfTestStatus::NotRun`].
+    pub const fn new(algorithm: SelfTestedAlgorithm) -> Self {
+        Self { status: AtomicU8::new(SelfTestStatus::NotRun.as_u8()), algorithm }
     }
 
-    /// The current status.
+    /// The current status: [`SelfTestStatus::Failed`] in the module error state, otherwise where
+    /// this algorithm's self-test stands. A status written by a run on one thread is seen by
+    /// every later `get` on any thread.
     pub fn get(&self) -> SelfTestStatus {
-        // Only `set` writes the cell, and it writes only `as_u8` values, so `from_u8` cannot
-        // fail; `Failed` is the safe reading should that ever stop being true.
-        SelfTestStatus::from_u8(self.0.load(Ordering::Acquire)).unwrap_or(SelfTestStatus::Failed)
+        if error_state().is_some() {
+            return SelfTestStatus::Failed;
+        }
+        // Only this type writes `status`, and only `as_u8` values, so `from_u8` cannot fail;
+        // `Failed` is the safe reading should that ever stop being true.
+        SelfTestStatus::from_u8(self.status.load(Ordering::Acquire))
+            .unwrap_or(SelfTestStatus::Failed)
     }
 
-    /// Replaces the status.
-    pub fn set(&self, status: SelfTestStatus) {
-        self.0.store(status.as_u8(), Ordering::Release);
+    /// Runs `kat`, the algorithm's known-answer test, and records the result: `true` moves the
+    /// status to [`SelfTestStatus::Passed`]; `false`, or a panic out of `kat`, moves it to
+    /// [`SelfTestStatus::Failed`] and puts the whole module in the error state
+    /// ([`enter_error_state`]) naming this cell's algorithm. The status is
+    /// [`SelfTestStatus::Running`] while `kat` runs, and only one thread runs it at a time.
+    ///
+    /// # Errors
+    /// * [`SelfTestError::KnownAnswerMismatch`] if `kat` returned `false`.
+    /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`], without running `kat`, if
+    ///   the module is in the error state, or after the run if it entered the error state (for
+    ///   another algorithm) while `kat` ran.
+    /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Running`], without running `kat`, if
+    ///   another thread is running it.
+    pub fn run(&self, kat: impl FnOnce() -> bool) -> Result<(), SelfTestError> {
+        self.claim()?;
+        // Until `forget` disarms it, dropping the guard -- which only happens if `kat` unwinds --
+        // records a failure, so a panicking KAT cannot leave the status at Running, which no
+        // later run could claim.
+        let guard = FailOnUnwind(self);
+        let passed = kat();
+        core::mem::forget(guard);
+        if !passed {
+            self.fail();
+            return Err(SelfTestError::KnownAnswerMismatch(self.algorithm));
+        }
+        self.status.store(SelfTestStatus::Passed.as_u8(), Ordering::Release);
+        match self.get() {
+            SelfTestStatus::Passed => Ok(()),
+            other => Err(SelfTestError::NotPassed(self.algorithm, other)),
+        }
+    }
+
+    /// Claims the run: NotRun or Passed becomes Running, atomically, so that two threads calling
+    /// [`Self::run`] at once do not both run the KAT. Running and Failed refuse.
+    fn claim(&self) -> Result<(), SelfTestError> {
+        loop {
+            let current = self.get();
+            match current {
+                SelfTestStatus::NotRun | SelfTestStatus::Passed => {}
+                other => return Err(SelfTestError::NotPassed(self.algorithm, other)),
+            }
+            // `current` came from `get`, which returns a stored value outside the error state.
+            if self
+                .status
+                .compare_exchange_weak(
+                    current.as_u8(),
+                    SelfTestStatus::Running.as_u8(),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Records a failure of this algorithm: its own status, and the module error state.
+    fn fail(&self) {
+        self.status.store(SelfTestStatus::Failed.as_u8(), Ordering::Release);
+        enter_error_state(self.algorithm);
     }
 }
 
-impl Default for SelfTestStatusCell {
-    fn default() -> Self {
-        Self::new()
+/// Records a failure if dropped; see [`SelfTestStatusCell::run`].
+struct FailOnUnwind<'a>(&'a SelfTestStatusCell);
+
+impl Drop for FailOnUnwind<'_> {
+    fn drop(&mut self) {
+        self.0.fail();
     }
 }
 
