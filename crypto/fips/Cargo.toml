@@ -25,3 +25,11 @@ bouncycastle-sha2 = { path = "../sha2", optional = true, features = ["fips"] }
 bouncycastle-cipher = { path = "../cipher" }
 
 [workspace]
+
+# The root manifest's `mutants` profile, which `.cargo/mutants.toml` names: profiles are read
+# from the workspace root, and this crate is its own. Keep the two in step.
+[profile.mutants]
+inherits = "release"
+lto = false
+incremental = true
+codegen-units = 16
