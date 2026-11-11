@@ -327,27 +327,37 @@ mod tests {
         assert_eq!(self_test(), Ok(()));
         assert_eq!(self_test_status(), SelfTestStatus::Passed);
 
-        // Each check rejects a single flipped bit in each value it compares or consumes.
-        let flips: [fn(&mut Kat); 10] = [
-            |k| k.gcm_key[0] ^= 1,
-            |k| k.gcm_iv[0] ^= 1,
-            |k| k.gcm_pt[0] ^= 1,
-            |k| k.gcm_aad[0] ^= 1,
-            |k| k.gcm_ct[15] ^= 1,
-            |k| k.gcm_tag[15] ^= 1,
-            |k| k.cbc_key[0] ^= 1,
-            |k| k.cbc_iv[0] ^= 1,
-            |k| k.cbc_ct[63] ^= 1,
-            |k| k.cbc_pt[63] ^= 1,
+        // Each check rejects a flipped bit in every byte of every value it compares or consumes,
+        // so no byte of a vector is dead weight.
+        let fields: [(&str, fn(&mut Kat) -> &mut [u8]); 10] = [
+            ("gcm_key", |k| &mut k.gcm_key),
+            ("gcm_iv", |k| &mut k.gcm_iv),
+            ("gcm_pt", |k| &mut k.gcm_pt),
+            ("gcm_aad", |k| &mut k.gcm_aad),
+            ("gcm_ct", |k| &mut k.gcm_ct),
+            ("gcm_tag", |k| &mut k.gcm_tag),
+            ("cbc_key", |k| &mut k.cbc_key),
+            ("cbc_iv", |k| &mut k.cbc_iv),
+            ("cbc_ct", |k| &mut k.cbc_ct),
+            ("cbc_pt", |k| &mut k.cbc_pt),
         ];
-        for (i, flip) in flips.iter().enumerate() {
-            let mut bad = KAT;
-            flip(&mut bad);
-            let results =
-                [gcm_encrypt_matches(&bad), gcm_decrypt_matches(&bad), cbc_decrypt_matches(&bad)];
-            // Every GCM value is consumed or compared by both GCM checks.
-            let expected = if i < 6 { [false, false, true] } else { [true, true, false] };
-            assert_eq!(results, expected, "flip {i}");
+        for (name, field) in fields {
+            for i in 0..field(&mut KAT.clone()).len() {
+                let mut bad = KAT;
+                field(&mut bad)[i] ^= 1;
+                let results = [
+                    gcm_encrypt_matches(&bad),
+                    gcm_decrypt_matches(&bad),
+                    cbc_decrypt_matches(&bad),
+                ];
+                // Every GCM value is consumed or compared by both GCM checks.
+                let expected = if name.starts_with("gcm") {
+                    [false, false, true]
+                } else {
+                    [true, true, false]
+                };
+                assert_eq!(results, expected, "{name}[{i}]");
+            }
         }
         assert!(
             gcm_encrypt_matches(&KAT) && gcm_decrypt_matches(&KAT) && cbc_decrypt_matches(&KAT)

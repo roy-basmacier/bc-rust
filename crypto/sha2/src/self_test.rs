@@ -231,19 +231,24 @@ mod tests {
         assert_eq!(self_test(), Ok(()));
         assert_eq!(sha256_self_test_status(), SelfTestStatus::Passed);
 
-        // Each check rejects a flipped bit in its message or its digest.
-        let mut bad256 = SHA256_KAT;
-        bad256.msg[2] ^= 1;
-        assert!(!sha256_matches(&bad256));
-        bad256 = SHA256_KAT;
-        bad256.md[31] ^= 1;
-        assert!(!sha256_matches(&bad256));
-        let mut bad512 = SHA512_KAT;
-        bad512.msg[2] ^= 1;
-        assert!(!sha512_matches(&bad512));
-        bad512 = SHA512_KAT;
-        bad512.md[63] ^= 1;
-        assert!(!sha512_matches(&bad512));
+        // Each check rejects a flipped bit in every byte of its message and its digest, so no
+        // byte of a vector is dead weight.
+        for i in 0..SHA256_KAT.msg.len() + SHA256_KAT.md.len() {
+            let mut bad = SHA256_KAT;
+            match i.checked_sub(bad.msg.len()) {
+                None => bad.msg[i] ^= 1,
+                Some(j) => bad.md[j] ^= 1,
+            }
+            assert!(!sha256_matches(&bad), "SHA-256 byte {i}");
+        }
+        for i in 0..SHA512_KAT.msg.len() + SHA512_KAT.md.len() {
+            let mut bad = SHA512_KAT;
+            match i.checked_sub(bad.msg.len()) {
+                None => bad.msg[i] ^= 1,
+                Some(j) => bad.md[j] ^= 1,
+            }
+            assert!(!sha512_matches(&bad), "SHA-512 byte {i}");
+        }
         assert!(sha256_matches(&SHA256_KAT) && sha512_matches(&SHA512_KAT));
 
         // States suspended, and hashes in progress, while the hashes were available.
@@ -256,6 +261,7 @@ mod tests {
         let (copy256, copy512) = (held256.clone(), held512.clone());
 
         // A wrong SHA-512 answer fails the run and puts both hashes in the error state for good.
+        let mut bad512 = SHA512_KAT;
         bad512.md[0] ^= 0x80;
         assert_eq!(
             run(&SHA256_KAT, &bad512),
