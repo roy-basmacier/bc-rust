@@ -18,9 +18,10 @@
 //! # The status
 //!
 //! [`STATUS`] is private to this crate: only [`self_test`] can move it to `Passed`, and only by
-//! producing the known answers. [`self_test_enter_error_state`] can only move it to `Failed`.
-//! `Failed` is permanent for the life of the process (the error-state decision recorded in the
-//! `bouncycastle-fips` docs), so nothing moves it back.
+//! producing the known answers. A failure puts the whole module in the error state through
+//! `bouncycastle_core::fips::enter_error_state`, which every self-tested crate's gate reads, so
+//! that one algorithm's failure stops all of them at once. The error state is permanent for the
+//! life of the process (the decision recorded in the `bouncycastle-fips` docs).
 //!
 //! While a run is in progress the status is `Running`, and the gate admits `Running` as it admits
 //! `Passed`, because the KAT's own keys go through it and `no_std` gives no way to tell the
@@ -32,7 +33,9 @@
 
 use bouncycastle_cipher::modes::{Blocks, CBC, GCM};
 use bouncycastle_core::errors::SymmetricCipherError;
-use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
+use bouncycastle_core::fips::{
+    SelfTestError, SelfTestStatus, SelfTestedAlgorithm, enter_error_state, error_state,
+};
 use bouncycastle_core::key_material::{KeyMaterial, KeyType};
 use bouncycastle_core::symmetric_key::{
     AeadDecryptionKey, AeadEncryptionKey, BlockDecryptionKey, FromKeyMaterial,
@@ -157,17 +160,10 @@ pub fn self_test() -> Result<(), SelfTestError> {
 }
 
 /// Where the AES self-test stands. AES keys can be created in [`SelfTestStatus::Passed`] and,
-/// while a run is in progress, [`SelfTestStatus::Running`].
+/// while a run is in progress, [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any
+/// self-tested algorithm has failed, not only AES.
 pub fn self_test_status() -> SelfTestStatus {
     status()
-}
-
-/// Puts AES in the error state: [`SelfTestStatus::Failed`] until the program restarts, so that
-/// every AES key constructor refuses and [`self_test`] will not run. It cannot mark anything as
-/// passed. `bouncycastle_fips` calls it when another algorithm's self-test fails, since a
-/// failure of any self-test stops every algorithm.
-pub fn self_test_enter_error_state() {
-    STATUS.store(SelfTestStatus::Failed.as_u8(), Ordering::Release);
 }
 
 /// The gate every AES key constructor passes through, from the key checks in
@@ -181,6 +177,9 @@ pub(crate) fn require_passed() -> Result<(), SymmetricCipherError> {
 }
 
 fn status() -> SelfTestStatus {
+    if error_state().is_some() {
+        return SelfTestStatus::Failed;
+    }
     // Only this module writes STATUS, and only `as_u8` values; `Failed` is the safe reading
     // should that ever stop being true.
     SelfTestStatus::from_u8(STATUS.load(Ordering::Acquire)).unwrap_or(SelfTestStatus::Failed)
@@ -198,6 +197,9 @@ fn run(kat: &Kat) -> Result<(), SelfTestError> {
 /// Claims the run: NotRun or Passed becomes Running, atomically, so that two threads calling
 /// [`self_test`] at once do not both run it. Failed and Running refuse.
 fn begin() -> Result<(), SelfTestError> {
+    if error_state().is_some() {
+        return Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed));
+    }
     let mut current = STATUS.load(Ordering::Acquire);
     loop {
         match SelfTestStatus::from_u8(current) {
@@ -225,10 +227,12 @@ fn begin() -> Result<(), SelfTestError> {
 /// Records the outcome of a run that [`begin`] claimed.
 fn finish(passed: bool) -> Result<(), SelfTestError> {
     if !passed {
-        self_test_enter_error_state();
+        STATUS.store(SelfTestStatus::Failed.as_u8(), Ordering::Release);
+        enter_error_state(SelfTestedAlgorithm::AES);
         return Err(SelfTestError::KnownAnswerMismatch(SelfTestedAlgorithm::AES));
     }
-    // Running -> Passed only: if `self_test_enter_error_state` ran during the run, Failed stays.
+    // Running -> Passed only; the error state, if another algorithm entered it during the run,
+    // still wins, since `status` reads it first.
     match STATUS.compare_exchange(
         SelfTestStatus::Running.as_u8(),
         SelfTestStatus::Passed.as_u8(),

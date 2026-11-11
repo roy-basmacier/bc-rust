@@ -4,6 +4,10 @@
 //! self-tested algorithm, which algorithm it is, and the errors a self-test or a gated service
 //! reports. Where a status is stored and which code may change it are left to the crate that
 //! runs the self-tests; `bouncycastle-fips` documents the requirements they implement.
+//!
+//! The one piece of state kept here is the module error state ([`enter_error_state`],
+//! [`error_state`]): a failure of any self-test stops every algorithm, so every crate's gate reads
+//! the same flag, and it can be set but never cleared.
 
 use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -98,6 +102,15 @@ impl SelfTestedAlgorithm {
     /// 10.3.A, GeneralNote7) only ever uses a hash that has already passed.
     pub const ALL: [Self; 3] = [Self::SHA256, Self::SHA512, Self::AES];
 
+    /// The algorithm's position in [`Self::ALL`].
+    const fn index(self) -> u8 {
+        match self {
+            Self::SHA256 => 0,
+            Self::SHA512 => 1,
+            Self::AES => 2,
+        }
+    }
+
     /// The algorithm's name as the self-test reports it.
     pub const fn name(self) -> &'static str {
         match self {
@@ -117,4 +130,31 @@ pub enum SelfTestError {
     /// The algorithm's self-test has not passed: it is in the given status, which is never
     /// [`SelfTestStatus::Passed`].
     NotPassed(SelfTestedAlgorithm, SelfTestStatus),
+}
+
+/// The module error state: `NO_ERROR`, or the index in [`SelfTestedAlgorithm::ALL`] of the
+/// algorithm whose failure entered it. Private, and written only by [`enter_error_state`], which
+/// never clears it.
+static ERROR_STATE: AtomicU8 = AtomicU8::new(NO_ERROR);
+const NO_ERROR: u8 = u8::MAX;
+
+/// Puts the whole module in the error state for the rest of the life of the process, naming
+/// `cause` as the algorithm whose self-test failed. From then on every self-tested algorithm
+/// reports [`SelfTestStatus::Failed`], refuses to create services, and refuses to run its
+/// self-test again; only a restart of the program leaves the error state.
+///
+/// Only the first cause is kept: once the module is in the error state, a later call changes
+/// nothing. Nothing can take the module out of the error state, so any code may call this to stop
+/// the module, and none can use it to start one.
+pub fn enter_error_state(cause: SelfTestedAlgorithm) {
+    // Losing the exchange means an earlier failure is already recorded, which is the one kept.
+    let _ =
+        ERROR_STATE.compare_exchange(NO_ERROR, cause.index(), Ordering::AcqRel, Ordering::Acquire);
+}
+
+/// The algorithm whose failure put the module in the error state, or `None` if it is not in it.
+pub fn error_state() -> Option<SelfTestedAlgorithm> {
+    // Only `enter_error_state` writes ERROR_STATE, and only NO_ERROR (which `ALL.get` maps to None)
+    // or an index into ALL.
+    SelfTestedAlgorithm::ALL.get(usize::from(ERROR_STATE.load(Ordering::Acquire))).copied()
 }

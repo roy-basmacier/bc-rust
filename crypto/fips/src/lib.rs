@@ -3,7 +3,8 @@
 //! Each algorithm crate carries its own self-test and status behind its `fips` cargo feature
 //! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`); this crate turns those features
 //! on and runs the self-tests in order. The status of each algorithm lives in, and can only be set
-//! to passed by, the crate that implements it; this crate only remembers which one failed first.
+//! to passed by, the crate that implements it. A failure of any of them puts the whole module in
+//! the error state (`bouncycastle_core::fips::error_state`), which every gate reads.
 //!
 //! An application that needs the self-tests depends on this crate, calls
 //! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
@@ -151,7 +152,7 @@
 
 pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use bouncycastle_core::fips::error_state;
 
 #[cfg(feature = "aes")]
 use bouncycastle_aes as aes;
@@ -169,12 +170,11 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     SelfTestedAlgorithm::AES,
 ];
 
-/// One algorithm crate's self-test entry points.
+/// One algorithm crate's self-test entry point.
 struct Crate {
     /// The algorithms its one `self_test` covers.
     algorithms: &'static [SelfTestedAlgorithm],
     self_test: fn() -> Result<(), SelfTestError>,
-    enter_error_state: fn(),
 }
 
 /// The enabled crates, in the order of [`SELF_TESTED`].
@@ -183,21 +183,10 @@ const CRATES: &[Crate] = &[
     Crate {
         algorithms: &[SelfTestedAlgorithm::SHA256, SelfTestedAlgorithm::SHA512],
         self_test: sha2::self_test,
-        enter_error_state: sha2::self_test_enter_error_state,
     },
     #[cfg(feature = "aes")]
-    Crate {
-        algorithms: &[SelfTestedAlgorithm::AES],
-        self_test: aes::self_test,
-        enter_error_state: aes::self_test_enter_error_state,
-    },
+    Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
 ];
-
-/// The algorithm whose failure put the module in the error state, as its index in
-/// [`SelfTestedAlgorithm::ALL`], or [`NO_FAILURE`]. Set once, so that later calls report the
-/// algorithm that failed rather than one stopped because of it.
-static FIRST_FAILURE: AtomicU8 = AtomicU8::new(NO_FAILURE);
-const NO_FAILURE: u8 = u8::MAX;
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] that has not passed yet. Call once at
 /// startup, before creating any service of those algorithms; calling it again after it succeeded
@@ -227,7 +216,7 @@ pub fn run_self_tests() -> Result<(), SelfTestError> {
 
 /// The current status of `algorithm`'s self-test. An algorithm this build does not self-test
 /// (not in [`SELF_TESTED`]) is always [`SelfTestStatus::NotRun`]. Once any self-test has failed,
-/// every algorithm reports [`SelfTestStatus::Failed`].
+/// every algorithm in [`SELF_TESTED`] reports [`SelfTestStatus::Failed`].
 pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
     match algorithm {
         #[cfg(feature = "sha2")]
@@ -242,8 +231,8 @@ pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
 
 /// [`power_on_self_tests`] (`skip_passed`) and [`run_self_tests`].
 fn run(skip_passed: bool) -> Result<(), SelfTestError> {
-    if let Some(failed) = failed_algorithm() {
-        enter_error_state(failed);
+    // The module error state, whoever entered it: report the algorithm that failed first.
+    if let Some(failed) = error_state() {
         return Err(SelfTestError::NotPassed(failed, SelfTestStatus::Failed));
     }
     for c in CRATES {
@@ -252,49 +241,8 @@ fn run(skip_passed: bool) -> Result<(), SelfTestError> {
         {
             continue;
         }
-        match (c.self_test)() {
-            Ok(()) => {}
-            // A wrong answer here, or a failure the crate already had (its `self_test` called
-            // directly, or its error state entered): stop everything.
-            Err(
-                e @ (SelfTestError::KnownAnswerMismatch(failed)
-                | SelfTestError::NotPassed(failed, SelfTestStatus::Failed)),
-            ) => {
-                enter_error_state(failed);
-                return Err(e);
-            }
-            // Another thread is running it: nothing failed.
-            Err(e) => return Err(e),
-        }
+        // A failing self-test enters the module error state itself, which stops every crate.
+        (c.self_test)()?;
     }
     Ok(())
-}
-
-/// The algorithm a recorded failure names, or else the first one in [`SELF_TESTED`] whose crate
-/// reports a failure on its own.
-fn failed_algorithm() -> Option<SelfTestedAlgorithm> {
-    SelfTestedAlgorithm::ALL
-        .get(usize::from(FIRST_FAILURE.load(Ordering::Acquire)))
-        .copied()
-        .or_else(|| {
-            SELF_TESTED.iter().copied().find(|a| self_test_status(*a) == SelfTestStatus::Failed)
-        })
-}
-
-/// Records `failed` as the first failure, if none is recorded, and puts every enabled crate in the
-/// error state: FIPS 140-3 IG 1.B applies AS10.07 to the entire module, so one algorithm's
-/// failure stops all of them.
-fn enter_error_state(failed: SelfTestedAlgorithm) {
-    if let Some(index) = SelfTestedAlgorithm::ALL.iter().position(|a| *a == failed) {
-        // u8: ALL has three entries. Losing the race means another failure was recorded first.
-        let _ = FIRST_FAILURE.compare_exchange(
-            NO_FAILURE,
-            index as u8,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-    }
-    for c in CRATES {
-        (c.enter_error_state)();
-    }
 }

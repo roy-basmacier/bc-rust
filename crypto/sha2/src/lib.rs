@@ -137,9 +137,10 @@
 //!
 //! With the off-by-default `fips` cargo feature, the crate carries its own known-answer
 //! self-tests, `self_test()`, and creating a SHA-2 hash panics until the one covering it has
-//! passed. `sha256_self_test_status()` and `sha512_self_test_status()` report where they stand,
-//! and `self_test_enter_error_state()` stops every SHA-2 hash for good. An application normally
-//! enables the feature through `bouncycastle-fips` and runs the self-tests through that crate.
+//! passed. `sha256_self_test_status()` and `sha512_self_test_status()` report where they stand.
+//! A failure of any self-tested algorithm (`bouncycastle_core::fips::error_state()`) stops every
+//! SHA-2 hash too, for good. An application normally enables the feature through
+//! `bouncycastle-fips` and runs the self-tests through that crate.
 
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]
@@ -153,9 +154,7 @@ pub mod hkdf;
 pub mod hmac;
 
 #[cfg(feature = "fips")]
-pub use self::self_test::{
-    self_test, self_test_enter_error_state, sha256_self_test_status, sha512_self_test_status,
-};
+pub use self::self_test::{self_test, sha256_self_test_status, sha512_self_test_status};
 pub use self::sha256::SHA256Internal;
 use self::sha256::{SHA224_H0, SHA256_H0};
 pub use self::sha512::SHA512Internal;
