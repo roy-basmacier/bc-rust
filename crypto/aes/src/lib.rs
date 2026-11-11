@@ -176,14 +176,20 @@
 //!   Appendix B, NIST SP 800-38A Appendix F.1 (ECB, all three key lengths, both directions), and
 //!   the NIST ACVP `ACVP-AES-ECB` vectors.
 //!
-//! # FIPS 140-3 self-test
+//! # The `fips` feature
 //!
-//! With the off-by-default `fips` cargo feature, the crate carries its own known-answer self-test,
-//! `self_test()`, and every AES key constructor returns `SymmetricCipherError::SelfTestNotPassed`
-//! until it has passed. `self_test_status()` reports where it stands. A failure of any
-//! self-tested algorithm (`bouncycastle_core::fips::error_state()`) stops AES too, for good. An
-//! application normally enables the feature through `bouncycastle-fips` and runs the self-test
-//! through that crate.
+//! With the off-by-default `fips` cargo feature the crate carries its own FIPS 140-3 known-answer
+//! self-test, `self_test()`, and `self_test_status()`. This is a self-test prototype, not a
+//! validated module; `bouncycastle-fips` documents the requirements and the vectors.
+//!
+//! * Every AES key constructor returns `SymmetricCipherError::SelfTestNotPassed` until the
+//!   self-test has passed. A re-run of a passed self-test keeps keys available.
+//! * Once the module is in the FIPS 140-3 error state (any self-tested algorithm has failed;
+//!   `bouncycastle_core::fips::error_state()`), no key can be created and every block operation
+//!   of an existing key or worker panics, until the program restarts.
+//! * The feature is build-wide: if any dependency turns it on, every AES key in the program is
+//!   gated. An application normally enables it through `bouncycastle-fips` and runs the self-test
+//!   with `bouncycastle_fips::power_on_self_tests()` first thing in `main`.
 
 #![no_std]
 #![forbid(unsafe_code)]

@@ -133,14 +133,24 @@
 //!   and SHA-512/t. This implementation supports 2^61 - 1 bytes for SHA-224/256 (the standard's
 //!   limit) and 2^64 - 1 bytes (2^67 bits) for the SHA-512 family, its byte counter's range.
 //!
-//! # FIPS 140-3 self-test
+//! # The `fips` feature
 //!
-//! With the off-by-default `fips` cargo feature, the crate carries its own known-answer
-//! self-tests, `self_test()`, and creating a SHA-2 hash panics until the one covering it has
-//! passed. `sha256_self_test_status()` and `sha512_self_test_status()` report where they stand.
-//! A failure of any self-tested algorithm (`bouncycastle_core::fips::error_state()`) stops every
-//! SHA-2 hash too, for good. An application normally enables the feature through
-//! `bouncycastle-fips` and runs the self-tests through that crate.
+//! With the off-by-default `fips` cargo feature the crate carries its own FIPS 140-3 known-answer
+//! self-tests, `self_test()`, with `sha256_self_test_status()` and `sha512_self_test_status()`.
+//! This is a self-test prototype, not a validated module; `bouncycastle-fips` documents the
+//! requirements and the vectors.
+//!
+//! * Creating a SHA-2 hash (`new()`, `Default`, the one-shots, and the HMAC, HKDF and DRBG over
+//!   them) panics until the self-test covering it has passed: SHA-256's for SHA-224 and SHA-256,
+//!   SHA-512's for the rest. `from_suspended` returns `SuspendableError::SelfTestNotPassed`
+//!   instead. A re-run of a passed self-test keeps hashes available.
+//! * Once the module is in the FIPS 140-3 error state (any self-tested algorithm has failed;
+//!   `bouncycastle_core::fips::error_state()`), no hash can be created and `do_update`, the finals
+//!   and `suspend` of an existing hash panic, until the program restarts.
+//! * Each hash is 8 bytes larger (a flag saying its output is gated).
+//! * The feature is build-wide: if any dependency turns it on, every SHA-2 hash in the program is
+//!   gated. An application normally enables it through `bouncycastle-fips` and runs the
+//!   self-tests with `bouncycastle_fips::power_on_self_tests()` first thing in `main`.
 
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]

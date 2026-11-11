@@ -1,4 +1,13 @@
-//! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust.
+//! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust's AES and SHA-2.
+//!
+//! **This is a self-test prototype, not a validated module.** It implements the known-answer
+//! self-tests FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms unusable
+//! until the self-tests pass, and the error state a failure enters. It is not a FIPS 140-3
+//! validated cryptographic module, and using it does not make an application one: a validation
+//! also needs, at least, a software integrity test, an approved service indicator, a defined
+//! cryptographic boundary, self-tests for every other approved algorithm offered (HMAC, the DRBG,
+//! SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md` beside this crate lists
+//! what is still missing.
 //!
 //! Each algorithm crate carries its own self-test and status behind its `fips` cargo feature
 //! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`); this crate turns those features
@@ -11,11 +20,11 @@
 //! Until an algorithm's self-test has passed, its services refuse to be created: where the
 //! constructor already returns a `Result` (an AES key from key material) it returns
 //! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`]; where it is
-//! infallible (`SHA256::new()`, a one-shot `hash()`) it panics. Once any self-test has failed,
-//! the module is in the error state until the program restarts: no service can be created, and
-//! every service that already exists -- a key, a worker, a hash in progress -- panics on its next
-//! operation, since none of those operations returns an error for it. No self-test runs before
-//! `main`.
+//! infallible (`SHA256::new()`, a one-shot `hash()`) it panics, and `from_suspended` returns
+//! `SuspendableError::SelfTestNotPassed`. Once any self-test has failed, the module is in the
+//! error state until the program restarts: no service can be created, and every service that
+//! already exists -- a key, a worker, a hash in progress -- panics on its next operation, since
+//! none of those operations returns an error for it. No self-test runs before `main`.
 //!
 //! The cargo features select which algorithms are self-tested and gated:
 //!
@@ -26,15 +35,66 @@
 //!
 //! # Usage Examples
 //!
-//! ```no_run
+//! Power on once, first thing in `main`, and stop if it fails:
+//!
+//! ```
 //! use bouncycastle_fips::{power_on_self_tests, self_test_status, SelfTestStatus, SelfTestedAlgorithm};
 //!
-//! // At startup, before any AES or SHA-2 service is created.
 //! if let Err(e) = power_on_self_tests() {
-//!     panic!("FIPS self-tests failed: {e:?}");
+//!     eprintln!("FIPS 140-3 self-tests failed: {e:?}");
+//!     std::process::exit(1);
 //! }
 //! assert_eq!(self_test_status(SelfTestedAlgorithm::AES), SelfTestStatus::Passed);
 //! ```
+//!
+//! Then use the algorithms as usual. Re-run the self-tests on demand -- the periodic self-test of
+//! IG 10.3.E -- and report each algorithm's status; services stay usable while it runs:
+//!
+//! ```
+//! use bouncycastle_fips::{power_on_self_tests, run_self_tests, self_test_status, SELF_TESTED};
+//!
+//! power_on_self_tests().expect("self-tests pass");
+//! let result = run_self_tests();
+//! for algorithm in SELF_TESTED {
+//!     println!("{}: {:?}", algorithm.name(), self_test_status(*algorithm));
+//! }
+//! result.expect("self-tests pass again");
+//! ```
+//!
+//! What an application sees in the error state (here entered by hand, as a failing self-test
+//! enters it): the self-tests do not run again, and every AES key is refused.
+//!
+//! ```no_run
+//! use bouncycastle_aes::AES128Key;
+//! use bouncycastle_cipher::modes::GCM;
+//! use bouncycastle_core::errors::SymmetricCipherError;
+//! use bouncycastle_core::fips::enter_error_state;
+//! use bouncycastle_core::key_material::{KeyMaterial128, KeyType};
+//! use bouncycastle_core::symmetric_key::FromKeyMaterial;
+//! use bouncycastle_fips::{power_on_self_tests, SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
+//!
+//! power_on_self_tests().expect("self-tests pass");
+//! enter_error_state(SelfTestedAlgorithm::SHA256);
+//! assert_eq!(
+//!     power_on_self_tests(),
+//!     Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Failed))
+//! );
+//! let material = KeyMaterial128::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey)
+//!     .unwrap();
+//! assert_eq!(
+//!     AES128Key::<GCM>::from_key_material(&material).err(),
+//!     Some(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::Failed))
+//! );
+//! ```
+//!
+//! To self-test and gate only one of the algorithms, turn the default features off:
+//!
+//! ```toml
+//! bouncycastle-fips = { version = "0.1.4", default-features = false, features = ["aes"] }
+//! ```
+//!
+//! `examples/crypto_officer.rs` runs the whole flow, including what an application that skips
+//! power-on sees; the `bc-rust` CLI's `fips` feature does the same for every command.
 //!
 //! # Requirements
 //!
@@ -124,7 +184,7 @@
 //!   (add `--no-default-features --features aes` and so on for one algorithm). It has its own
 //!   `target/` and `Cargo.lock`, both ignored by git.
 //! * No workspace member may depend on it, or on an algorithm crate's `fips` feature, except
-//!   behind an off-by-default feature of its own (for example a CLI self-test command). CI's
+//!   behind an off-by-default feature of its own, as the CLI's `fips` feature does. CI's
 //!   `cargo build --workspace --all-features` still compiles such a feature, which is harmless;
 //!   its tests run on their own, never under `--all-features` across the workspace.
 //! * `cargo mutants` no longer passes `--all-features` (`.cargo/mutants.toml`), which would turn
@@ -138,16 +198,38 @@
 //!
 //! | Call | Peak stack |
 //! |---|---|
-//! | [`power_on_self_tests`], first call / [`run_self_tests`] | 1700 B |
-//! | [`power_on_self_tests`] after it has passed | 88 B |
-//! | `bouncycastle_aes::self_test` | 1636 B |
-//! | `bouncycastle_sha2::self_test` | 1496 B |
+//! | [`power_on_self_tests`], first call / [`run_self_tests`] | 1964 B |
+//! | [`power_on_self_tests`] after it has passed | 40 B |
+//! | `bouncycastle_aes::self_test` | 1948 B |
+//! | `bouncycastle_sha2::self_test` | 1320 B |
+//!
+//! The state is a byte per algorithm and one for the module error state, all in `static`s. With
+//! the `fips` feature each SHA-2 hash is 8 bytes larger (whether its output is gated).
 //!
 //! # 🚨 Security Considerations 🚨
 //!
-//! The self-tests detect a faulty implementation; they say nothing about how the algorithms are
-//! used. Nothing is gated until [`power_on_self_tests`] is called *and* this crate is linked:
-//! a program that does not depend on `bouncycastle-fips` uses the algorithms ungated.
+//! * **Not a validated module.** See the top of this page for what a validation needs beyond
+//!   these self-tests. HMAC-SHA-2, HKDF and the Hash_DRBG become usable as soon as SHA-2 passes,
+//!   but have no self-test of their own here (FIPS 140-3 IG 10.3.A Resolutions 4 and 6 require
+//!   them): they cannot be claimed as approved services of a build using this crate.
+//! * **The gates are build-wide.** Cargo turns a feature on for the whole build if any one
+//!   dependency asks for it, so once anything in a program depends on this crate, every AES key
+//!   and SHA-2 hash in that program, in every library, is refused until [`power_on_self_tests`]
+//!   has passed. Call it first, before starting threads or initialising libraries that hash or
+//!   encrypt at startup.
+//! * **One module per process, and per copy of `bouncycastle-core`.** The statuses and the error
+//!   state are process-global `static`s. A program that links two versions of
+//!   `bouncycastle-core` (or of an algorithm crate) has two independent sets, and a failure in one
+//!   does not stop the other.
+//! * **The error state is permanent and panics.** After a failure, every existing key, worker and
+//!   hash panics on its next operation, including in code that does not expect a panic. Under
+//!   `panic = "abort"` that ends the process; under unwinding, code that catches the panic must not
+//!   treat the operation as having produced output.
+//! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
+//!   that any crate can report a failure (a pairwise consistency test, later). Nothing can clear
+//!   it or record a pass, but any code in the process can stop every gated algorithm with it.
+//! * **The self-tests detect a faulty implementation**, not misuse: they say nothing about how
+//!   keys, nonces or IVs are chosen.
 
 #![no_std]
 #![forbid(unsafe_code)]
