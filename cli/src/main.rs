@@ -11,6 +11,8 @@ mod ctr_cmd;
 mod ecb_cmd;
 mod ecdsa_cmd;
 mod encoders_cmd;
+#[cfg(feature = "fips")]
+mod fips_cmd;
 mod gcm_cmd;
 mod helpers;
 mod hkdf_cmd;
@@ -50,6 +52,12 @@ struct Cli {
     /// are always hex. Without this flag a file is its raw bytes, however hex-like they look.
     #[arg(long, global = true)]
     hex_input: bool,
+
+    /// Test hook: put the module in the FIPS 140-3 error state, as a failing AES self-test would,
+    /// before the power-on self-tests run. It can only stop the module.
+    #[cfg(feature = "fips")]
+    #[arg(long, global = true, hide = true)]
+    fips_simulate_failure: bool,
 
     #[command(subcommand)]
     subcommands: Option<Subcommands>,
@@ -5176,6 +5184,11 @@ enum Subcommands {
         /// Output in hex format.
         x: bool,
     },
+    /// Runs the FIPS 140-3 self-tests for AES and SHA-2 again and prints each algorithm's status,
+    /// one `<algorithm>: <status>` line per algorithm; exits with status 3 if any fails. Every
+    /// invocation already runs them once at startup. Only with the `fips` feature.
+    #[cfg(feature = "fips")]
+    FipsSelfTest,
 }
 
 fn main() {
@@ -5191,6 +5204,9 @@ fn main() {
 fn run() {
     let cli = Cli::parse();
     helpers::set_hex_input(cli.hex_input);
+    // FIPS 140-3: the self-tests pass before any subcommand uses an algorithm, or nothing runs.
+    #[cfg(feature = "fips")]
+    fips_cmd::power_on(cli.fips_simulate_failure);
 
     match &cli.subcommands {
         Some(Subcommands::AES128_CBC { direction, key, key_file, iv, iv_file, x }) => {
@@ -6354,6 +6370,8 @@ fn run() {
         Some(Subcommands::HMAC_SHA3_512 { key, key_file, verify, x }) => {
             mac_cmd::mac_cmd(HMACVariant::SHA3_512, key, key_file, verify, *x)
         }
+        #[cfg(feature = "fips")]
+        Some(Subcommands::FipsSelfTest) => fips_cmd::fips_self_test_cmd(),
         None => {
             eprintln!("No command provided. See -h")
         }

@@ -3,8 +3,19 @@ name = "cli"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# FIPS 140-3 self-tests for AES and SHA-2: every invocation runs them before its subcommand and
+# exits non-zero if they fail, and the `fips-self-test` subcommand runs them again on demand. Off
+# by default; without it the CLI is unchanged. Turning it on gates AES and SHA-2 in the whole build
+# (see "Feature unification" in the bouncycastle-fips docs), so test it on its own:
+# `cargo test -p cli --features fips`.
+fips = ["dep:bouncycastle-fips"]
+
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }
+# Outside the workspace (see the root manifest's `exclude`), hence a path rather than
+# `workspace = true`.
+bouncycastle-fips = { path = "../crypto/fips", optional = true }
 
 bouncycastle.workspace = true
 bouncycastle-utils.workspace = true
