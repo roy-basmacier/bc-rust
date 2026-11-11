@@ -1,32 +1,23 @@
-//! Concurrent runs: several threads power on and re-run the self-tests while creating services;
-//! the services stay usable throughout, and a run that overlaps another reports `Running` rather
-//! than failing.
-#![cfg(all(feature = "aes", feature = "sha2"))]
+//! Concurrent runs: several threads power on and re-run the self-tests while creating services.
+//! Every call succeeds -- one that overlaps another thread's run waits for it and reports its
+//! result -- and the services stay usable throughout.
+#![cfg(any(feature = "aes", feature = "sha2"))]
 
 mod common;
 
 use bouncycastle_fips::{
-    SELF_TESTED, SelfTestError, SelfTestStatus, power_on_self_tests, run_self_tests,
-    self_test_status,
+    SELF_TESTED, SelfTestStatus, power_on_self_tests, run_self_tests, self_test_status,
 };
 
 #[test]
-fn re_runs_from_several_threads_keep_services_usable() {
-    // Whichever thread gets here first does the power-on run; the others may see it Running.
+fn power_on_and_re_runs_from_several_threads_all_succeed() {
     let threads: Vec<_> = (0..4)
         .map(|_| {
             std::thread::spawn(|| {
-                while power_on_self_tests().is_err() {}
+                assert_eq!(power_on_self_tests(), Ok(()));
                 for _ in 0..20 {
-                    // A concurrent run makes this report Running; it never fails.
-                    if let Err(e) = run_self_tests() {
-                        assert!(
-                            matches!(e, SelfTestError::NotPassed(_, SelfTestStatus::Running)),
-                            "{e:?}"
-                        );
-                    }
-                    assert_eq!(common::aes_keys(), Ok(()));
-                    assert_eq!(common::sha2_hashes(), [true; 5]);
+                    assert_eq!(run_self_tests(), Ok(()));
+                    common::assert_services(None);
                 }
             })
         })

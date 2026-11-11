@@ -131,12 +131,13 @@ const KAT: Kat = Kat {
 /// fails.
 ///
 /// # Errors
-/// * [`SelfTestError::KnownAnswerMismatch`] if any answer differs. AES is then in
-///   [`SelfTestStatus::Failed`] until the program restarts.
+/// * [`SelfTestError::KnownAnswerMismatch`] if any answer differs. The module is then in the
+///   error state, and AES in [`SelfTestStatus::Failed`], until the program restarts.
 /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`], without running anything, if
-///   AES is already in the error state.
-/// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Running`], without running anything, if
-///   another thread is running it.
+///   the module is already in the error state.
+///
+/// A call made while another thread is running the AES self-test waits for that run and
+/// reports its result.
 ///
 /// # Usage Examples
 ///

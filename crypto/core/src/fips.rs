@@ -81,17 +81,20 @@ impl SelfTestStatusCell {
     /// status to [`SelfTestStatus::Passed`]; `false`, or a panic out of `kat`, moves it to
     /// [`SelfTestStatus::Failed`] and puts the whole module in the error state
     /// ([`enter_error_state`]) naming this cell's algorithm. The status is
-    /// [`SelfTestStatus::Running`] while `kat` runs, and only one thread runs it at a time.
+    /// [`SelfTestStatus::Running`] while `kat` runs, and only one thread runs it at a time: a
+    /// call made while another thread's run is in progress waits for that run to finish and
+    /// reports its result, without running `kat` itself.
     ///
     /// # Errors
     /// * [`SelfTestError::KnownAnswerMismatch`] if `kat` returned `false`.
     /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`], without running `kat`, if
-    ///   the module is in the error state, or after the run if it entered the error state (for
-    ///   another algorithm) while `kat` ran.
-    /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Running`], without running `kat`, if
-    ///   another thread is running it.
+    ///   the module is in the error state, or if it entered the error state while `kat` (or the
+    ///   run waited for) ran, whichever algorithm failed.
     pub fn run(&self, kat: impl FnOnce() -> bool) -> Result<(), SelfTestError> {
-        self.claim()?;
+        if !self.claim()? {
+            // Another thread's run finished while this call waited: its result is this call's.
+            return self.result();
+        }
         // Until `forget` disarms it, dropping the guard -- which only happens if `kat` unwinds --
         // records a failure, so a panicking KAT cannot leave the status at Running, which no
         // later run could claim.
@@ -103,6 +106,11 @@ impl SelfTestStatusCell {
             return Err(SelfTestError::KnownAnswerMismatch(self.algorithm));
         }
         self.status.store(SelfTestStatus::Passed.as_u8(), Ordering::Release);
+        self.result()
+    }
+
+    /// `Ok` if the status is [`SelfTestStatus::Passed`], else the status as an error.
+    fn result(&self) -> Result<(), SelfTestError> {
         match self.get() {
             SelfTestStatus::Passed => Ok(()),
             other => Err(SelfTestError::NotPassed(self.algorithm, other)),
@@ -110,13 +118,24 @@ impl SelfTestStatusCell {
     }
 
     /// Claims the run: NotRun or Passed becomes Running, atomically, so that two threads calling
-    /// [`Self::run`] at once do not both run the KAT. Running and Failed refuse.
-    fn claim(&self) -> Result<(), SelfTestError> {
+    /// [`Self::run`] at once do not both run the KAT. `Ok(true)` once claimed; `Ok(false)` if
+    /// another thread's run was in progress, after waiting for it to finish. Failed refuses.
+    fn claim(&self) -> Result<bool, SelfTestError> {
         loop {
             let current = self.get();
             match current {
                 SelfTestStatus::NotRun | SelfTestStatus::Passed => {}
-                other => return Err(SelfTestError::NotPassed(self.algorithm, other)),
+                SelfTestStatus::Running => {
+                    // A KAT takes microseconds, and the guard in `run` ends Running even if it
+                    // panics, so this spins briefly; no_std has no way to block instead.
+                    while self.get() == SelfTestStatus::Running {
+                        core::hint::spin_loop();
+                    }
+                    return Ok(false);
+                }
+                SelfTestStatus::Failed => {
+                    return Err(SelfTestError::NotPassed(self.algorithm, current));
+                }
             }
             // `current` came from `get`, which returns a stored value outside the error state.
             if self
@@ -129,7 +148,7 @@ impl SelfTestStatusCell {
                 )
                 .is_ok()
             {
-                return Ok(());
+                return Ok(true);
             }
         }
     }

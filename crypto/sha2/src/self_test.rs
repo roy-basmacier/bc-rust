@@ -82,12 +82,14 @@ const SHA512_KAT: HashKat<64> = HashKat {
 /// fails.
 ///
 /// # Errors
-/// * [`SelfTestError::KnownAnswerMismatch`] if a digest differs. Both SHA-256 and SHA-512 are
-///   then in [`SelfTestStatus::Failed`] until the program restarts.
+/// * [`SelfTestError::KnownAnswerMismatch`] if a digest differs. The module is then in the error
+///   state, and both SHA-256 and SHA-512 in [`SelfTestStatus::Failed`], until the program
+///   restarts.
 /// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`], without running anything, if
-///   they are already in the error state.
-/// * [`SelfTestError::NotPassed`] with [`SelfTestStatus::Running`], without running that
-///   self-test, if another thread is running it.
+///   the module is already in the error state.
+///
+/// A call made while another thread is running one of these self-tests waits for that run and
+/// reports its result.
 ///
 /// # Usage Examples
 ///

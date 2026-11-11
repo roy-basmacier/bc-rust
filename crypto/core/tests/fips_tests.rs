@@ -53,16 +53,22 @@ fn status_cell_starts_not_run_and_passes_when_the_kat_does() {
 }
 
 #[test]
-fn status_cell_refuses_a_second_run_while_one_is_in_progress() {
+fn status_cell_run_overlapping_another_waits_for_it_and_reports_its_result() {
     static CELL: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::SHA256);
-    let inner = CELL.run(|| {
-        assert_eq!(
-            CELL.run(|| unreachable!("a second run must not start")),
-            Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Running))
-        );
-        true
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let first = std::thread::spawn(move || {
+        CELL.run(|| {
+            started.send(()).unwrap();
+            // Long enough for the second call to arrive while this run is in progress.
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            true
+        })
     });
-    assert_eq!(inner, Ok(()));
+    wait_started.recv().unwrap();
+    assert_eq!(CELL.get(), SelfTestStatus::Running);
+    assert_eq!(CELL.run(|| unreachable!("the run in progress answers for this call")), Ok(()));
+    assert_eq!(first.join().unwrap(), Ok(()));
+    assert_eq!(CELL.get(), SelfTestStatus::Passed);
 }
 
 #[test]

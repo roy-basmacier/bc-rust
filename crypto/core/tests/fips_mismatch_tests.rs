@@ -13,8 +13,22 @@ static SHA256: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm:
 #[test]
 fn a_wrong_answer_fails_its_algorithm_and_stops_the_module() {
     assert_eq!(SHA256.run(|| true), Ok(()));
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let failing = std::thread::spawn(move || {
+        AES.run(|| {
+            started.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            false
+        })
+    });
+    wait_started.recv().unwrap();
+    // A call overlapping the failing run waits for it and reports the failure, without a KAT.
     assert_eq!(
-        AES.run(|| false),
+        AES.run(|| unreachable!("the run in progress answers for this call")),
+        Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed))
+    );
+    assert_eq!(
+        failing.join().unwrap(),
         Err(SelfTestError::KnownAnswerMismatch(SelfTestedAlgorithm::AES))
     );
     assert_eq!(error_state(), Some(SelfTestedAlgorithm::AES));

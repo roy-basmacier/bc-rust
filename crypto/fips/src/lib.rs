@@ -197,8 +197,8 @@ const CRATES: &[Crate] = &[
 /// [`SelfTestError::KnownAnswerMismatch`] for the first algorithm whose self-test fails; every
 /// gated service then refuses to be created until the program restarts. After such a failure,
 /// [`SelfTestError::NotPassed`] with [`SelfTestStatus::Failed`] for the failed algorithm, without
-/// running anything. [`SelfTestError::NotPassed`] with [`SelfTestStatus::Running`] if another
-/// thread is running the same self-test at that moment.
+/// running anything. A call made while another thread is running a self-test waits for that run
+/// and reports its result, so concurrent calls all succeed or all fail.
 pub fn power_on_self_tests() -> Result<(), SelfTestError> {
     run(true)
 }

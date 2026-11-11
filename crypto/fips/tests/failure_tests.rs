@@ -5,16 +5,16 @@
 //! private KAT over a corrupted copy of the vectors (`crypto/aes/src/self_test.rs`,
 //! `crypto/sha2/src/self_test.rs`); no public item can make a KAT fail. What a mismatch then does
 //! is enter the module error state, through a public function (it can only stop services), so
-//! this file starts there: the error state is entered naming AES, as AES's own failing
-//! self-test enters it.
-#![cfg(all(feature = "aes", feature = "sha2"))]
+//! this file starts there: the error state is entered naming the first self-tested algorithm,
+//! as its own failing self-test enters it.
+#![cfg(any(feature = "aes", feature = "sha2"))]
 
 mod common;
 
-use bouncycastle_core::errors::SymmetricCipherError;
+use bouncycastle_core::fips::enter_error_state;
 use bouncycastle_fips::{
-    SELF_TESTED, SelfTestError, SelfTestStatus, SelfTestedAlgorithm, power_on_self_tests,
-    run_self_tests, self_test_status,
+    SELF_TESTED, SelfTestError, SelfTestStatus, power_on_self_tests, run_self_tests,
+    self_test_status,
 };
 
 fn all_failed() -> bool {
@@ -24,37 +24,36 @@ fn all_failed() -> bool {
 #[test]
 fn one_failure_stops_every_algorithm_until_restart() {
     assert_eq!(power_on_self_tests(), Ok(()));
-    assert_eq!(common::aes_keys(), Ok(()));
-    assert_eq!(common::sha2_hashes(), [true; 5]);
+    common::assert_services(None);
 
-    // AES fails, outside this crate: every algorithm stops at once, before any call into it.
-    bouncycastle_core::fips::enter_error_state(SelfTestedAlgorithm::AES);
+    // One algorithm fails, outside this crate: every algorithm stops at once, before any call
+    // into it.
+    let failed = SELF_TESTED[0];
+    enter_error_state(failed);
     assert!(all_failed());
-    assert_eq!(
-        common::aes_keys(),
-        Err(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::Failed))
-    );
-    assert_eq!(common::sha2_hashes(), [false; 5]);
+    common::assert_services(Some(SelfTestStatus::Failed));
 
-    // The next call runs nothing and reports AES.
-    let expected = Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed));
+    // Nothing runs, nothing clears it, and every call names the algorithm that failed.
+    let expected = Err(SelfTestError::NotPassed(failed, SelfTestStatus::Failed));
     assert_eq!(run_self_tests(), expected);
-
-    // Nothing clears it, and it keeps naming the algorithm that failed first.
     assert_eq!(power_on_self_tests(), expected);
     assert_eq!(run_self_tests(), expected);
+    #[cfg(feature = "sha2")]
     assert_eq!(
         bouncycastle_sha2::self_test(),
-        Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Failed))
+        Err(SelfTestError::NotPassed(
+            bouncycastle_fips::SelfTestedAlgorithm::SHA256,
+            SelfTestStatus::Failed
+        ))
     );
+    #[cfg(feature = "aes")]
     assert_eq!(
         bouncycastle_aes::self_test(),
-        Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed))
+        Err(SelfTestError::NotPassed(
+            bouncycastle_fips::SelfTestedAlgorithm::AES,
+            SelfTestStatus::Failed
+        ))
     );
     assert!(all_failed());
-    assert_eq!(
-        common::aes_keys(),
-        Err(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::Failed))
-    );
-    assert_eq!(common::sha2_hashes(), [false; 5]);
+    common::assert_services(Some(SelfTestStatus::Failed));
 }
