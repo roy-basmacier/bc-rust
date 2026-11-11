@@ -23,6 +23,11 @@ bouncycastle-sha2 = { path = "../sha2", optional = true, features = ["fips"] }
 
 [dev-dependencies]
 bouncycastle-cipher = { path = "../cipher" }
+bouncycastle-rng = { path = "../rng" }
+
+[[example]]
+name = "crypto_officer"
+required-features = ["aes", "sha2"]
 
 [workspace]
 
