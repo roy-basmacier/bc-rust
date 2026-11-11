@@ -176,6 +176,10 @@ pub struct SHA256Internal<PARAMS: SHA256InitValue> {
     byte_count: u64,
     x_buf: Secret<[u8; 64]>,
     x_buf_off: usize,
+    /// Whether [`bouncycastle_core::fips::assert_operational`] guards this hash's output: true
+    /// for every hash but the self-test's own (`new_ungated`).
+    #[cfg(feature = "fips")]
+    gated: bool,
 }
 
 impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
@@ -188,7 +192,26 @@ impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
         // one-shots come through here.
         #[cfg(feature = "fips")]
         crate::self_test::require_sha256_passed();
-        Self::new_ungated()
+        #[allow(unused_mut)]
+        let mut hash = Self::new_ungated();
+        #[cfg(feature = "fips")]
+        {
+            hash.gated = true;
+        }
+        hash
+    }
+
+    /// With the `fips` feature, panics once the module is in the FIPS 140-3 error state, unless
+    /// this is one of the self-test's own hashes. Called before every step that outputs data or
+    /// state: `do_update`, the finals and `suspend`.
+    #[inline(always)]
+    fn assert_operational(&self) {
+        #[cfg(feature = "fips")]
+        if self.gated {
+            bouncycastle_core::fips::assert_operational(
+                bouncycastle_core::fips::SelfTestedAlgorithm::SHA256,
+            );
+        }
     }
 
     /// [`Self::new`] without the `fips` gate: for the self-test's own hashes, which must exist
@@ -200,6 +223,8 @@ impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
             byte_count: 0,
             x_buf: Secret::new(),
             x_buf_off: 0,
+            #[cfg(feature = "fips")]
+            gated: false,
         }
     }
 }
@@ -221,6 +246,7 @@ impl<PARAMS: SHA256InitValue> SHA256Internal<PARAMS> {
         num_partial_bits: usize,
         output: &mut [u8],
     ) -> usize {
+        self.assert_operational();
         debug_assert!(num_partial_bits <= 7);
         output.fill(0);
 
@@ -294,6 +320,7 @@ impl<PARAMS: SHA256InitValue> Hash for SHA256Internal<PARAMS> {
     }
 
     fn do_update(&mut self, block: &[u8]) {
+        self.assert_operational();
         let len = block.len();
 
         // FIPS 180-4 s. 5.1.1: do_final_internal encodes l in a 64-bit field as `byte_count << 3`,
@@ -374,6 +401,7 @@ pub const SUSPENDED_SHA256_STATE_LEN: usize = 108;
 
 impl<PARAMS: SHA256InitValue> Suspendable<SUSPENDED_SHA256_STATE_LEN> for SHA256Internal<PARAMS> {
     fn suspend(self) -> [u8; SUSPENDED_SHA256_STATE_LEN] {
+        self.assert_operational();
         debug_assert_eq!(SUSPENDED_SHA256_STATE_LEN, 108);
 
         let mut out_to_return = [0u8; SUSPENDED_SHA256_STATE_LEN];
@@ -455,6 +483,8 @@ impl<PARAMS: SHA256InitValue> Suspendable<SUSPENDED_SHA256_STATE_LEN> for SHA256
             byte_count,
             x_buf,
             x_buf_off,
+            #[cfg(feature = "fips")]
+            gated: true,
         })
     }
 }

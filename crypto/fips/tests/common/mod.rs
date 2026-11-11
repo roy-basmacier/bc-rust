@@ -57,3 +57,62 @@ pub fn assert_services(refused: Option<SelfTestStatus>) {
     assert_eq!(sha2_hashes(), [refused.is_none(); 5]);
     let _ = refused;
 }
+
+/// Services made at one point and used at another: an AES-GCM key and a SHA-256 hash in progress.
+pub struct Held {
+    #[cfg(feature = "aes")]
+    key: AES128Key<GCM>,
+    #[cfg(feature = "sha2")]
+    hash: SHA256,
+}
+
+/// Makes a [`Held`]; the services must be available.
+pub fn held() -> Held {
+    #[cfg(feature = "sha2")]
+    let hash = {
+        use bouncycastle_core::traits::Hash;
+        let mut hash = SHA256::new();
+        hash.do_update(b"ab");
+        hash
+    };
+    Held {
+        #[cfg(feature = "aes")]
+        key: AES128Key::<GCM>::from_key_material(
+            &KeyMaterial::<16>::from_bytes_as_type(&[0x42; 16], KeyType::SymmetricCipherKey)
+                .unwrap(),
+        )
+        .unwrap(),
+        #[cfg(feature = "sha2")]
+        hash,
+    }
+}
+
+impl Held {
+    /// Whether each enabled held service still produces output (`false`: it panicked):
+    /// `[AES-GCM encryption, SHA-256 update and final]`, `true` for a disabled one.
+    pub fn usable(&self) -> [bool; 2] {
+        #[cfg(feature = "aes")]
+        let aes = {
+            use bouncycastle_core::symmetric_key::AeadEncryptionKey;
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.key.encrypt_detached_nonce_out(&[0; 12], b"", &[0; 16], &mut [0; 16]).is_ok()
+            }))
+            .unwrap_or(false)
+        };
+        #[cfg(not(feature = "aes"))]
+        let aes = true;
+        #[cfg(feature = "sha2")]
+        let sha2 = {
+            use bouncycastle_core::traits::Hash;
+            let mut hash = self.hash.clone();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                hash.do_update(b"c");
+                hash.do_final() == SHA256::hash(b"abc")
+            }))
+            .unwrap_or(false)
+        };
+        #[cfg(not(feature = "sha2"))]
+        let sha2 = true;
+        [aes, sha2]
+    }
+}

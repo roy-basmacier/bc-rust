@@ -287,8 +287,12 @@ fn cbc_decrypt_matches(kat: &Kat) -> bool {
 // other unit test in the crate creates an AES key.
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
     use super::*;
     use crate::AES128Key;
+    use bouncycastle_core::traits::SymmetricCipherEncryptor;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     fn gcm_key_result() -> Result<AES128Key<GCM>, SymmetricCipherError> {
         let material =
@@ -349,6 +353,12 @@ mod tests {
             gcm_encrypt_matches(&KAT) && gcm_decrypt_matches(&KAT) && cbc_decrypt_matches(&KAT)
         );
 
+        // A key, and a worker from it, made while AES was available.
+        let held = gcm_key_result().unwrap();
+        let mut worker = held.create_encryptor_nonce(&KAT.gcm_iv);
+        let mut out = [0u8; 16];
+        assert!(worker.do_encrypt_out(&KAT.gcm_pt, &mut out).is_ok());
+
         // A run with a wrong answer fails and leaves AES in the error state for good.
         // Only the last of the three CASTs is wrong, so the run must not stop at the first.
         let mut bad = KAT;
@@ -364,5 +374,21 @@ mod tests {
             Err(SelfTestError::NotPassed(SelfTestedAlgorithm::AES, SelfTestStatus::Failed))
         );
         assert_eq!(self_test_status(), SelfTestStatus::Failed);
+
+        // The key and worker that already existed produce nothing more (decision 5 of
+        // APPROACHES.md): every block call panics.
+        let encrypt = catch_unwind(AssertUnwindSafe(|| {
+            held.encrypt_detached_nonce_out(&KAT.gcm_iv, &KAT.gcm_aad, &KAT.gcm_pt, &mut out)
+        }));
+        assert!(encrypt.is_err());
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| worker.do_encrypt_out(&KAT.gcm_pt, &mut out)))
+                .is_err()
+        );
+        // The KAT's own keys are not gated, so a KAT run in the error state reports its answer
+        // rather than panicking.
+        assert!(
+            gcm_encrypt_matches(&KAT) && gcm_decrypt_matches(&KAT) && cbc_decrypt_matches(&KAT)
+        );
     }
 }

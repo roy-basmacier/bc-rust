@@ -18,15 +18,10 @@ fn services_work_after_power_on_and_across_re_runs() {
     assert!(all_passed());
     common::assert_services(None);
 
-    // A hash created before a re-run is still usable afterwards, and gives the right answer
-    // (FIPS 180-4 Appendix B.1 is not one of the KATs, so this also checks a value they don't).
-    #[cfg(feature = "sha2")]
-    let mut held = {
-        use bouncycastle_core::traits::Hash;
-        let mut held = bouncycastle_sha2::SHA256::new();
-        held.do_update(b"ab");
-        held
-    };
+    // A key and a hash created before a re-run are still usable afterwards, and give the right
+    // answer (FIPS 180-4 Appendix B.1 is not one of the KATs, so this also checks a value they
+    // don't).
+    let held = common::held();
 
     assert_eq!(power_on_self_tests(), Ok(()), "second call is a no-op");
     for _ in 0..3 {
@@ -34,11 +29,5 @@ fn services_work_after_power_on_and_across_re_runs() {
         assert!(all_passed());
         common::assert_services(None);
     }
-
-    #[cfg(feature = "sha2")]
-    {
-        use bouncycastle_core::traits::{Hash, HashOneShot};
-        held.do_update(b"c");
-        assert_eq!(held.do_final(), bouncycastle_sha2::SHA256::hash(b"abc"));
-    }
+    assert_eq!(held.usable(), [true; 2]);
 }

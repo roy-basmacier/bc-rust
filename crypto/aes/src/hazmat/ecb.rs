@@ -246,6 +246,16 @@ pub type AES_ECB_256<'k, Dir, Pad> = <Dir as Direction>::Select<
     >,
 >;
 
+/// With the `fips` feature, panics once the module is in the FIPS 140-3 error state. Every block
+/// an AES key's modes encrypt or decrypt goes through one of the `BlockPermutation` methods below,
+/// each of which calls this first, so a key or worker made before a self-test failure stops with
+/// it. The self-test's own keys use `self_test::KatAES128`, which does not.
+#[inline(always)]
+fn assert_operational() {
+    #[cfg(feature = "fips")]
+    bouncycastle_core::fips::assert_operational(bouncycastle_core::fips::SelfTestedAlgorithm::AES);
+}
+
 impl KeyExpansion<16> for AES128Internal {
     fn new(key: &KeyMaterial<16>) -> Result<Self, SymmetricCipherError> {
         // FIPS 140-3 IG 10.3.A: no AES key before the AES self-test has passed. Every key of every
@@ -258,21 +268,27 @@ impl KeyExpansion<16> for AES128Internal {
 
 impl BlockPermutation<AES_BLOCK_LEN> for AES128Internal {
     fn encrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::encrypt_block(self, block)
     }
     fn decrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::decrypt_block(self, block)
     }
     fn encrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::encrypt_2blocks(self, blocks)
     }
     fn decrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::decrypt_2blocks(self, blocks)
     }
     fn encrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::encrypt_4blocks(self, blocks)
     }
     fn decrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::decrypt_4blocks(self, blocks)
     }
 }
@@ -289,21 +305,27 @@ impl KeyExpansion<24> for AES192Internal {
 
 impl BlockPermutation<AES_BLOCK_LEN> for AES192Internal {
     fn encrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::encrypt_block(self, block)
     }
     fn decrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::decrypt_block(self, block)
     }
     fn encrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::encrypt_2blocks(self, blocks)
     }
     fn decrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::decrypt_2blocks(self, blocks)
     }
     fn encrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::encrypt_4blocks(self, blocks)
     }
     fn decrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::decrypt_4blocks(self, blocks)
     }
 }
@@ -320,21 +342,27 @@ impl KeyExpansion<32> for AES256Internal {
 
 impl BlockPermutation<AES_BLOCK_LEN> for AES256Internal {
     fn encrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::encrypt_block(self, block)
     }
     fn decrypt_block(&self, block: &mut Block) {
+        assert_operational();
         Self::decrypt_block(self, block)
     }
     fn encrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::encrypt_2blocks(self, blocks)
     }
     fn decrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        assert_operational();
         Self::decrypt_2blocks(self, blocks)
     }
     fn encrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::encrypt_4blocks(self, blocks)
     }
     fn decrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        assert_operational();
         Self::decrypt_4blocks(self, blocks)
     }
 }

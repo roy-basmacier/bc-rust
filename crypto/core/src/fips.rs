@@ -251,6 +251,25 @@ pub fn enter_error_state(cause: SelfTestedAlgorithm) {
         ERROR_STATE.compare_exchange(NO_ERROR, cause.index(), Ordering::AcqRel, Ordering::Acquire);
 }
 
+/// The check every operation of a self-tested algorithm makes before it produces output, so that
+/// keys, workers and hashes that already exist stop when the module enters the error state (it
+/// "inhibits data output", AS03.07 as FIPS 140-3 IG 1.B cites it).
+///
+/// # Panics
+/// If the module is in the error state, naming `algorithm` and the algorithm whose failure
+/// entered it. The operations this guards return no error for it, so a panic is the only refusal
+/// they can give.
+pub fn assert_operational(algorithm: SelfTestedAlgorithm) {
+    if let Some(cause) = error_state() {
+        panic!(
+            "{} cannot be used: the module is in the FIPS 140-3 error state since the {} \
+             self-test failed",
+            algorithm.name(),
+            cause.name()
+        );
+    }
+}
+
 /// The algorithm whose failure put the module in the error state, or `None` if it is not in it.
 pub fn error_state() -> Option<SelfTestedAlgorithm> {
     // Only `enter_error_state` writes ERROR_STATE, and only NO_ERROR (which `ALL.get` maps to None)

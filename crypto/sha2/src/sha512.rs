@@ -328,6 +328,10 @@ pub struct SHA512Internal<PARAMS: SHA512InitValue> {
     byte_count: u64,
     x_buf: Secret<[u8; 128]>,
     x_buf_off: usize,
+    /// Whether [`bouncycastle_core::fips::assert_operational`] guards this hash's output: true
+    /// for every hash but the self-test's own (`new_ungated`).
+    #[cfg(feature = "fips")]
+    gated: bool,
 }
 
 impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
@@ -340,7 +344,26 @@ impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
         // one-shots come through here.
         #[cfg(feature = "fips")]
         crate::self_test::require_sha512_passed();
-        Self::new_ungated()
+        #[allow(unused_mut)]
+        let mut hash = Self::new_ungated();
+        #[cfg(feature = "fips")]
+        {
+            hash.gated = true;
+        }
+        hash
+    }
+
+    /// With the `fips` feature, panics once the module is in the FIPS 140-3 error state, unless
+    /// this is one of the self-test's own hashes. Called before every step that outputs data or
+    /// state: `do_update`, the finals and `suspend`.
+    #[inline(always)]
+    fn assert_operational(&self) {
+        #[cfg(feature = "fips")]
+        if self.gated {
+            bouncycastle_core::fips::assert_operational(
+                bouncycastle_core::fips::SelfTestedAlgorithm::SHA512,
+            );
+        }
     }
 
     /// [`Self::new`] without the `fips` gate: for the self-test's own hashes, which must exist
@@ -352,6 +375,8 @@ impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
             byte_count: 0,
             x_buf: Secret::new(),
             x_buf_off: 0_usize,
+            #[cfg(feature = "fips")]
+            gated: false,
         }
     }
 }
@@ -373,6 +398,7 @@ impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
         num_partial_bits: usize,
         output: &mut [u8],
     ) -> usize {
+        self.assert_operational();
         debug_assert!(num_partial_bits <= 7);
         output.fill(0);
 
@@ -448,6 +474,7 @@ impl<PARAMS: SHA512InitValue> Hash for SHA512Internal<PARAMS> {
     }
 
     fn do_update(&mut self, block: &[u8]) {
+        self.assert_operational();
         let len = block.len();
 
         // FIPS 180-4 s. 5.1.2: do_final_internal writes the whole 128-bit field, carrying the top
@@ -523,6 +550,7 @@ pub const SUSPENDED_SHA512_STATE_LEN: usize = 204;
 
 impl<PARAMS: SHA512InitValue> Suspendable<SUSPENDED_SHA512_STATE_LEN> for SHA512Internal<PARAMS> {
     fn suspend(self) -> [u8; SUSPENDED_SHA512_STATE_LEN] {
+        self.assert_operational();
         debug_assert_eq!(SUSPENDED_SHA512_STATE_LEN, 204);
 
         let mut out_to_return = [0u8; SUSPENDED_SHA512_STATE_LEN];
@@ -601,6 +629,8 @@ impl<PARAMS: SHA512InitValue> Suspendable<SUSPENDED_SHA512_STATE_LEN> for SHA512
             byte_count,
             x_buf,
             x_buf_off,
+            #[cfg(feature = "fips")]
+            gated: true,
         })
     }
 }

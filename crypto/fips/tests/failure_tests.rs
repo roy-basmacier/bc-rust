@@ -25,6 +25,8 @@ fn all_failed() -> bool {
 fn one_failure_stops_every_algorithm_until_restart() {
     assert_eq!(power_on_self_tests(), Ok(()));
     common::assert_services(None);
+    let held = common::held();
+    assert_eq!(held.usable(), [true; 2]);
 
     // One algorithm fails, outside this crate: every algorithm stops at once, before any call
     // into it.
@@ -32,6 +34,11 @@ fn one_failure_stops_every_algorithm_until_restart() {
     enter_error_state(failed);
     assert!(all_failed());
     common::assert_services(Some(SelfTestStatus::Failed));
+    // Services made before the failure stop too.
+    #[cfg(all(feature = "aes", feature = "sha2"))]
+    assert_eq!(held.usable(), [false; 2]);
+    #[cfg(not(all(feature = "aes", feature = "sha2")))]
+    assert_eq!(held.usable().iter().filter(|u| !**u).count(), 1);
 
     // Nothing runs, nothing clears it, and every call names the algorithm that failed.
     let expected = Err(SelfTestError::NotPassed(failed, SelfTestStatus::Failed));

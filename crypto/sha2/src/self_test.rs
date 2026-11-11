@@ -173,7 +173,7 @@ mod tests {
     use super::*;
     use crate::{SHA224, SHA384, SHA512_256};
     use bouncycastle_core::traits::{HashOneShot, Suspendable};
-    use std::panic::catch_unwind;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
     fn passes_then_a_wrong_answer_fails_for_good() {
@@ -227,9 +227,14 @@ mod tests {
         assert!(!sha512_matches(&bad512));
         assert!(sha256_matches(&SHA256_KAT) && sha512_matches(&SHA512_KAT));
 
-        // States suspended while the hashes were available.
+        // States suspended, and hashes in progress, while the hashes were available.
         let suspended256 = SHA256::new().suspend();
         let suspended512 = SHA512::new().suspend();
+        let mut held256 = SHA224::new();
+        held256.do_update(b"ab");
+        let mut held512 = SHA384::new();
+        held512.do_update(b"ab");
+        let (copy256, copy512) = (held256.clone(), held512.clone());
 
         // A wrong SHA-512 answer fails the run and puts both hashes in the error state for good.
         bad512.md[0] ^= 0x80;
@@ -248,5 +253,17 @@ mod tests {
             Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Failed))
         );
         assert_eq!(sha512_self_test_status(), SelfTestStatus::Failed);
+
+        // Hashes that already existed produce nothing more (decision 5 of APPROACHES.md): an
+        // update, a final and a suspend each panic.
+        assert!(catch_unwind(AssertUnwindSafe(|| held256.do_update(b"c"))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| held512.do_update(b"c"))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| copy256.clone().do_final())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| copy512.clone().do_final())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| copy256.suspend())).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| copy512.suspend())).is_err());
+        // The KATs' own hashes are not gated, so a KAT run in the error state reports its answer
+        // rather than panicking.
+        assert!(sha256_matches(&SHA256_KAT) && sha512_matches(&SHA512_KAT));
     }
 }

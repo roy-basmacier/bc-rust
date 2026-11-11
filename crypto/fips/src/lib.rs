@@ -8,11 +8,14 @@
 //!
 //! An application that needs the self-tests depends on this crate, calls
 //! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
-//! Until an algorithm's self-test has passed, its services refuse to be created, and once any
-//! self-test has failed, every gated service refuses until the program restarts: where the
+//! Until an algorithm's self-test has passed, its services refuse to be created: where the
 //! constructor already returns a `Result` (an AES key from key material) it returns
 //! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`]; where it is
-//! infallible (`SHA256::new()`, a one-shot `hash()`) it panics. No self-test runs before `main`.
+//! infallible (`SHA256::new()`, a one-shot `hash()`) it panics. Once any self-test has failed,
+//! the module is in the error state until the program restarts: no service can be created, and
+//! every service that already exists -- a key, a worker, a hash in progress -- panics on its next
+//! operation, since none of those operations returns an error for it. No self-test runs before
+//! `main`.
 //!
 //! The cargo features select which algorithms are self-tested and gated:
 //!
