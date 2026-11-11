@@ -135,10 +135,6 @@ impl<P: AESParams> AESInternal<P> {
     /// Takes `&dyn KeyMaterialTrait` so the three constructors, whose `KeyMaterial<N>` capacities
     /// differ, can share one implementation.
     fn validate(key: &dyn KeyMaterialTrait) -> Result<(), SymmetricCipherError> {
-        // FIPS 140-3 IG 10.3.A: no AES key before the AES self-test has passed. Every constructor
-        // calls `validate` first, so this is the one gate for every mode and key length.
-        #[cfg(feature = "fips")]
-        crate::self_test::require_passed()?;
         if key.key_type() != KeyType::SymmetricCipherKey {
             return Err(KeyMaterialError::InvalidKeyType(
                 "AES requires a key of type KeyType::SymmetricCipherKey.",
@@ -289,8 +285,6 @@ impl AES128Internal {
     /// * [`KeyMaterialError::InvalidKeyType`] if the key is not [`KeyType::SymmetricCipherKey`].
     /// * [`KeyMaterialError::InvalidLength`] if the key is not 16 bytes long.
     /// * [`KeyMaterialError::SecurityStrength`] if the key carries a strength below 128 bits.
-    /// * [`SymmetricCipherError::SelfTestNotPassed`] with the `fips` feature, until the AES self-test
-    ///   has passed.
     pub(crate) fn new(key: &KeyMaterial<16>) -> Result<Self, SymmetricCipherError> {
         Self::validate(key)?;
         // `validate` checked key_len() == 16, which is exactly what ref_to_bytes() spans.

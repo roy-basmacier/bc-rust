@@ -50,8 +50,12 @@ impl SelfTestStatus {
 /// algorithm: the only way to `Passed` is a [`SelfTestStatusCell::run`] whose known-answer test
 /// returned `true`, so the crate that owns the `static` decides what passing means.
 ///
-/// Starts as [`SelfTestStatus::NotRun`]. Once the module is in the error state
-/// ([`error_state`]) every cell reads [`SelfTestStatus::Failed`], whichever algorithm failed.
+/// Starts as [`SelfTestStatus::NotRun`]. The first run reads [`SelfTestStatus::Running`]; a
+/// re-run of a self-test that has passed keeps reading [`SelfTestStatus::Passed`] until it
+/// finishes, so the algorithm stays available while its periodic self-test runs (FIPS 140-3 IG
+/// 10.3.E Resolution 5: a repeated CAST "may be run in the background without the need for
+/// inhibiting data output"). Once the module is in the error state ([`error_state`]) every cell
+/// reads [`SelfTestStatus::Failed`], whichever algorithm failed.
 #[derive(Debug)]
 pub struct SelfTestStatusCell {
     status: AtomicU8,
@@ -71,17 +75,18 @@ impl SelfTestStatusCell {
         if error_state().is_some() {
             return SelfTestStatus::Failed;
         }
-        // Only this type writes `status`, and only `as_u8` values, so `from_u8` cannot fail;
-        // `Failed` is the safe reading should that ever stop being true.
-        SelfTestStatus::from_u8(self.status.load(Ordering::Acquire))
-            .unwrap_or(SelfTestStatus::Failed)
+        match self.status.load(Ordering::Acquire) {
+            RERUNNING => SelfTestStatus::Passed,
+            // Only this type writes `status`, and only `as_u8` values or RERUNNING, so `from_u8`
+            // cannot fail; `Failed` is the safe reading should that ever stop being true.
+            stored => SelfTestStatus::from_u8(stored).unwrap_or(SelfTestStatus::Failed),
+        }
     }
 
     /// Runs `kat`, the algorithm's known-answer test, and records the result: `true` moves the
     /// status to [`SelfTestStatus::Passed`]; `false`, or a panic out of `kat`, moves it to
     /// [`SelfTestStatus::Failed`] and puts the whole module in the error state
-    /// ([`enter_error_state`]) naming this cell's algorithm. The status is
-    /// [`SelfTestStatus::Running`] while `kat` runs, and only one thread runs it at a time: a
+    /// ([`enter_error_state`]) naming this cell's algorithm. Only one thread runs it at a time: a
     /// call made while another thread's run is in progress waits for that run to finish and
     /// reports its result, without running `kat` itself.
     ///
@@ -117,35 +122,35 @@ impl SelfTestStatusCell {
         }
     }
 
-    /// Claims the run: NotRun or Passed becomes Running, atomically, so that two threads calling
-    /// [`Self::run`] at once do not both run the KAT. `Ok(true)` once claimed; `Ok(false)` if
-    /// another thread's run was in progress, after waiting for it to finish. Failed refuses.
+    /// Claims the run, atomically, so that two threads calling [`Self::run`] at once do not both
+    /// run the KAT: NotRun becomes Running, Passed becomes RERUNNING. `Ok(true)` once claimed;
+    /// `Ok(false)` if another thread's run was in progress, after waiting for it to finish.
+    /// Failed, and the module error state, refuse.
     fn claim(&self) -> Result<bool, SelfTestError> {
+        const NOT_RUN: u8 = SelfTestStatus::NotRun.as_u8();
+        const RUNNING: u8 = SelfTestStatus::Running.as_u8();
+        const PASSED: u8 = SelfTestStatus::Passed.as_u8();
         loop {
-            let current = self.get();
-            match current {
-                SelfTestStatus::NotRun | SelfTestStatus::Passed => {}
-                SelfTestStatus::Running => {
-                    // A KAT takes microseconds, and the guard in `run` ends Running even if it
+            if error_state().is_some() {
+                return Err(SelfTestError::NotPassed(self.algorithm, SelfTestStatus::Failed));
+            }
+            let current = self.status.load(Ordering::Acquire);
+            let claimed = match current {
+                NOT_RUN => RUNNING,
+                PASSED => RERUNNING,
+                RUNNING | RERUNNING => {
+                    // A KAT takes microseconds, and the guard in `run` ends the run even if it
                     // panics, so this spins briefly; no_std has no way to block instead.
-                    while self.get() == SelfTestStatus::Running {
+                    while matches!(self.status.load(Ordering::Acquire), RUNNING | RERUNNING) {
                         core::hint::spin_loop();
                     }
                     return Ok(false);
                 }
-                SelfTestStatus::Failed => {
-                    return Err(SelfTestError::NotPassed(self.algorithm, current));
-                }
-            }
-            // `current` came from `get`, which returns a stored value outside the error state.
+                _ => return Err(SelfTestError::NotPassed(self.algorithm, SelfTestStatus::Failed)),
+            };
             if self
                 .status
-                .compare_exchange_weak(
-                    current.as_u8(),
-                    SelfTestStatus::Running.as_u8(),
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
+                .compare_exchange_weak(current, claimed, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 return Ok(true);
@@ -159,6 +164,10 @@ impl SelfTestStatusCell {
         enter_error_state(self.algorithm);
     }
 }
+
+/// The stored value of a re-run of a self-test that had passed, which [`SelfTestStatusCell::get`]
+/// reports as [`SelfTestStatus::Passed`]. Outside the range of [`SelfTestStatus::as_u8`].
+const RERUNNING: u8 = 4;
 
 /// Records a failure if dropped; see [`SelfTestStatusCell::run`].
 struct FailOnUnwind<'a>(&'a SelfTestStatusCell);

@@ -248,6 +248,10 @@ pub type AES_ECB_256<'k, Dir, Pad> = <Dir as Direction>::Select<
 
 impl KeyExpansion<16> for AES128Internal {
     fn new(key: &KeyMaterial<16>) -> Result<Self, SymmetricCipherError> {
+        // FIPS 140-3 IG 10.3.A: no AES key before the AES self-test has passed. Every key of every
+        // mode is built through here; the self-test's own keys are not (`self_test::KatAES128`).
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
         AES128Internal::new(key)
     }
 }
@@ -275,6 +279,10 @@ impl BlockPermutation<AES_BLOCK_LEN> for AES128Internal {
 
 impl KeyExpansion<24> for AES192Internal {
     fn new(key: &KeyMaterial<24>) -> Result<Self, SymmetricCipherError> {
+        // FIPS 140-3 IG 10.3.A: no AES key before the AES self-test has passed. Every key of every
+        // mode is built through here; the self-test's own keys are not (`self_test::KatAES128`).
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
         AES192Internal::new(key)
     }
 }
@@ -302,6 +310,10 @@ impl BlockPermutation<AES_BLOCK_LEN> for AES192Internal {
 
 impl KeyExpansion<32> for AES256Internal {
     fn new(key: &KeyMaterial<32>) -> Result<Self, SymmetricCipherError> {
+        // FIPS 140-3 IG 10.3.A: no AES key before the AES self-test has passed. Every key of every
+        // mode is built through here; the self-test's own keys are not (`self_test::KatAES128`).
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
         AES256Internal::new(key)
     }
 }

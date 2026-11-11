@@ -340,6 +340,12 @@ impl<PARAMS: SHA512InitValue> SHA512Internal<PARAMS> {
         // one-shots come through here.
         #[cfg(feature = "fips")]
         crate::self_test::require_sha512_passed();
+        Self::new_ungated()
+    }
+
+    /// [`Self::new`] without the `fips` gate: for the self-test's own hashes, which must exist
+    /// before the gate opens.
+    pub(crate) fn new_ungated() -> Self {
         Self {
             _params: core::marker::PhantomData,
             state: Sha512State::<PARAMS>::new(),

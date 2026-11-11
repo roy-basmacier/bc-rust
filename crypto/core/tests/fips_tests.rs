@@ -39,16 +39,16 @@ fn status_cell_starts_not_run_and_passes_when_the_kat_does() {
     );
     assert_eq!(seen, Some(SelfTestStatus::Running), "Running while the KAT runs");
     assert_eq!(CELL.get(), SelfTestStatus::Passed);
-    // A re-run from Passed runs the KAT again.
-    let mut runs = 0;
+    // A re-run from Passed runs the KAT again, reading Passed throughout.
+    let mut seen = None;
     assert_eq!(
         CELL.run(|| {
-            runs += 1;
+            seen = Some(CELL.get());
             true
         }),
         Ok(())
     );
-    assert_eq!(runs, 1);
+    assert_eq!(seen, Some(SelfTestStatus::Passed), "a re-run keeps the algorithm available");
     assert_eq!(CELL.get(), SelfTestStatus::Passed);
 }
 
@@ -69,6 +69,20 @@ fn status_cell_run_overlapping_another_waits_for_it_and_reports_its_result() {
     assert_eq!(CELL.run(|| unreachable!("the run in progress answers for this call")), Ok(()));
     assert_eq!(first.join().unwrap(), Ok(()));
     assert_eq!(CELL.get(), SelfTestStatus::Passed);
+
+    // Likewise for a re-run, which reads Passed while it runs.
+    let (started, wait_started) = std::sync::mpsc::channel();
+    let rerun = std::thread::spawn(move || {
+        CELL.run(|| {
+            started.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            true
+        })
+    });
+    wait_started.recv().unwrap();
+    assert_eq!(CELL.get(), SelfTestStatus::Passed);
+    assert_eq!(CELL.run(|| unreachable!("the re-run in progress answers for this call")), Ok(()));
+    assert_eq!(rerun.join().unwrap(), Ok(()));
 }
 
 #[test]

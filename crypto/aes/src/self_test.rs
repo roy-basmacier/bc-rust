@@ -11,9 +11,12 @@
 //! * AES-CBC-128 decryption of SP 800-38A Appendix F.2.2 "CBC-AES128.Decrypt" (the inverse
 //!   cipher of 1.c).
 //!
-//! The KAT drives the same public API an application would (`AES128Key<GCM>`,
-//! `AES128Key<CBC<Blocks>>`, `FromKeyMaterial`, the `_nonce` and `_out` one-shots), so the keys it
-//! builds pass through the same gate as every other key.
+//! The KAT drives the same key API an application would (`FromKeyMaterial`, the `_nonce` and
+//! `_out` one-shots), the same mode code (`bouncycastle-cipher`'s GCM and CBC) and the same AES
+//! rounds, but over [`KatAES128`], a private permutation that forwards to [`AES128Internal`]
+//! without the gates. So no key of the public types exists before the self-test has passed, and a
+//! gate that refuses (the module entering the error state mid-run) fails the KAT's answer rather
+//! than panicking out of it.
 //!
 //! # The status
 //!
@@ -23,25 +26,27 @@
 //! that one algorithm's failure stops all of them at once. The error state is permanent for the
 //! life of the process (the decision recorded in the `bouncycastle-fips` docs).
 //!
-//! While a run is in progress the status is `Running`, and the gate admits `Running` as it admits
-//! `Passed`, because the KAT's own keys go through it and `no_std` gives no way to tell the
-//! KAT's thread from any other. So for the length of a run *every* thread may create AES keys:
-//! during a re-run that is the background periodic self-test IG 10.3.E Resolution 5 allows;
-//! during the first run it is a key made before the self-test has passed, which the
-//! `bouncycastle-fips` docs rule out by telling the application to run the power-on self-tests
-//! before creating any service.
+//! AES keys can be created only while the status reads `Passed`: not during the first run, and
+//! not after a failure. A re-run reads `Passed` while it runs (IG 10.3.E Resolution 5 lets a
+//! repeated CAST run in the background), so keys stay available through one.
 
+use bouncycastle_cipher::BlockCipherKey;
+use bouncycastle_cipher::modes::ModeNames;
 use bouncycastle_cipher::modes::{Blocks, CBC, GCM};
 use bouncycastle_core::errors::SymmetricCipherError;
 use bouncycastle_core::fips::{
     SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
 };
+use bouncycastle_core::hazmat::{BlockPermutation, KeyExpansion};
 use bouncycastle_core::key_material::{KeyMaterial, KeyType};
+use bouncycastle_core::security_strength::SecurityStrength;
 use bouncycastle_core::symmetric_key::{
     AeadDecryptionKey, AeadEncryptionKey, BlockDecryptionKey, FromKeyMaterial,
 };
+use bouncycastle_core::traits::Algorithm;
 
-use crate::AES128Key;
+use crate::bitslice::Block;
+use crate::hazmat::AES128Internal;
 
 /// The AES self-test status. Only [`run`] runs it, so only the AES KAT can make it `Passed`.
 static STATUS: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm::AES);
@@ -123,8 +128,8 @@ const KAT: Kat = Kat {
 
 /// Runs the AES self-test: AES-GCM-128 encryption and decryption and AES-CBC-128 decryption
 /// against compiled-in known answers. Until it has passed, every AES key constructor returns
-/// [`SymmetricCipherError::SelfTestNotPassed`]. It may be run again at any time; keys stay
-/// available while it runs.
+/// [`SymmetricCipherError::SelfTestNotPassed`]. It may be run again at any time; once it has
+/// passed, keys stay available while it runs again.
 ///
 /// An application normally calls this through `bouncycastle_fips::power_on_self_tests()`, which
 /// also runs the other algorithms' self-tests and puts all of them in the error state if any
@@ -159,19 +164,18 @@ pub fn self_test() -> Result<(), SelfTestError> {
     run(&KAT)
 }
 
-/// Where the AES self-test stands. AES keys can be created in [`SelfTestStatus::Passed`] and,
-/// while a run is in progress, [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any
-/// self-tested algorithm has failed, not only AES.
+/// Where the AES self-test stands. AES keys can be created only in [`SelfTestStatus::Passed`],
+/// which a re-run of a passed self-test keeps reading while it runs. [`SelfTestStatus::Failed`]
+/// once any self-tested algorithm has failed, not only AES.
 pub fn self_test_status() -> SelfTestStatus {
     STATUS.get()
 }
 
-/// The gate every AES key constructor passes through, from the key checks in
-/// `AESInternal::validate`.
+/// The gate every AES key constructor passes through (the `KeyExpansion` impls in
+/// `hazmat::ecb`): `Passed` only.
 pub(crate) fn require_passed() -> Result<(), SymmetricCipherError> {
     match STATUS.get() {
-        // Running: the KAT's own keys come through here (see the module docs).
-        SelfTestStatus::Passed | SelfTestStatus::Running => Ok(()),
+        SelfTestStatus::Passed => Ok(()),
         other => Err(SymmetricCipherError::SelfTestNotPassed(other)),
     }
 }
@@ -183,17 +187,73 @@ fn run(kat: &Kat) -> Result<(), SelfTestError> {
     STATUS.run(|| gcm_encrypt_matches(kat) && gcm_decrypt_matches(kat) && cbc_decrypt_matches(kat))
 }
 
-/// A key (an `AES128Key<M>`) from 16 bytes of the KAT, through the public constructor; `None`
-/// if it is refused, which fails the KAT.
-fn key<K: FromKeyMaterial<16>>(bytes: &[u8; 16]) -> Option<K> {
+/// AES-128 for the KAT's keys only: [`AES128Internal`] without the gates in its `KeyExpansion`
+/// impl, so that the self-test can build keys before AES is available. Each method forwards to
+/// the same AES-128 code every `AES128Key` runs.
+#[derive(Clone)]
+struct KatAES128(AES128Internal);
+
+impl Algorithm for KatAES128 {
+    const ALG_NAME: &'static str = AES128Internal::ALG_NAME;
+    const MAX_SECURITY_STRENGTH: SecurityStrength = AES128Internal::MAX_SECURITY_STRENGTH;
+}
+
+impl ModeNames for KatAES128 {
+    const CBC_ALG_NAME: &'static str = AES128Internal::CBC_ALG_NAME;
+    const CCM_ALG_NAME: &'static str = AES128Internal::CCM_ALG_NAME;
+    const CFB_ALG_NAME: &'static str = AES128Internal::CFB_ALG_NAME;
+    const CFB8_ALG_NAME: &'static str = AES128Internal::CFB8_ALG_NAME;
+    const CMAC_ALG_NAME: &'static str = AES128Internal::CMAC_ALG_NAME;
+    const CTR_ALG_NAME: &'static str = AES128Internal::CTR_ALG_NAME;
+    const ECB_ALG_NAME: &'static str = AES128Internal::ECB_ALG_NAME;
+    const GCM_ALG_NAME: &'static str = AES128Internal::GCM_ALG_NAME;
+    const GMAC_ALG_NAME: &'static str = AES128Internal::GMAC_ALG_NAME;
+    const KW_ALG_NAME: &'static str = AES128Internal::KW_ALG_NAME;
+    const KWP_ALG_NAME: &'static str = AES128Internal::KWP_ALG_NAME;
+}
+
+impl KeyExpansion<16> for KatAES128 {
+    fn new(key: &KeyMaterial<16>) -> Result<Self, SymmetricCipherError> {
+        // The key checks and expansion, without `require_passed`.
+        AES128Internal::new(key).map(Self)
+    }
+}
+
+impl BlockPermutation<16> for KatAES128 {
+    fn encrypt_block(&self, block: &mut Block) {
+        self.0.encrypt_block(block)
+    }
+    fn decrypt_block(&self, block: &mut Block) {
+        self.0.decrypt_block(block)
+    }
+    fn encrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        self.0.encrypt_2blocks(blocks)
+    }
+    fn decrypt_2blocks(&self, blocks: &mut [Block; 2]) {
+        self.0.decrypt_2blocks(blocks)
+    }
+    fn encrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        self.0.encrypt_4blocks(blocks)
+    }
+    fn decrypt_4blocks(&self, blocks: &mut [Block; 4]) {
+        self.0.decrypt_4blocks(blocks)
+    }
+}
+
+/// A KAT key for the mode `M` from 16 bytes of the KAT, through the same `FromKeyMaterial`
+/// checks as an `AES128Key<M>`; `None` if it is refused, which fails the KAT.
+fn key<M>(bytes: &[u8; 16]) -> Option<BlockCipherKey<KatAES128, M>>
+where
+    M: bouncycastle_core::hazmat::Mode<KatAES128>,
+{
     let material =
         KeyMaterial::<16>::from_bytes_as_type(bytes, KeyType::SymmetricCipherKey).ok()?;
-    K::from_key_material(&material).ok()
+    BlockCipherKey::<KatAES128, M>::from_key_material(&material).ok()
 }
 
 /// IG 10.3.A 1.a: authenticated encryption, which gives both the ciphertext and the tag.
 fn gcm_encrypt_matches(kat: &Kat) -> bool {
-    let Some(key) = key::<AES128Key<GCM>>(&kat.gcm_key) else { return false };
+    let Some(key) = key::<GCM>(&kat.gcm_key) else { return false };
     let mut ct = [0u8; 16];
     match key.encrypt_detached_nonce_out(&kat.gcm_iv, &kat.gcm_aad, &kat.gcm_pt, &mut ct) {
         Ok((written, tag)) => written == ct.len() && ct == kat.gcm_ct && tag == kat.gcm_tag,
@@ -204,7 +264,7 @@ fn gcm_encrypt_matches(kat: &Kat) -> bool {
 /// IG 10.3.A 1.b: authenticated decryption of the same vector, the tag accepted and the
 /// plaintext recovered.
 fn gcm_decrypt_matches(kat: &Kat) -> bool {
-    let Some(key) = key::<AES128Key<GCM>>(&kat.gcm_key) else { return false };
+    let Some(key) = key::<GCM>(&kat.gcm_key) else { return false };
     let mut pt = [0u8; 16];
     match key.decrypt_detached_out(&kat.gcm_iv, &kat.gcm_aad, &kat.gcm_ct, &kat.gcm_tag, &mut pt) {
         Ok(written) => written == pt.len() && pt == kat.gcm_pt,
@@ -214,7 +274,7 @@ fn gcm_decrypt_matches(kat: &Kat) -> bool {
 
 /// IG 10.3.A 1.c: the inverse cipher, which GCM never uses.
 fn cbc_decrypt_matches(kat: &Kat) -> bool {
-    let Some(key) = key::<AES128Key<CBC<Blocks>>>(&kat.cbc_key) else { return false };
+    let Some(key) = key::<CBC<Blocks>>(&kat.cbc_key) else { return false };
     let mut data = kat.cbc_ct;
     match key.decrypt_inplace(&kat.cbc_iv, &mut data) {
         Ok(written) => written == data.len() && data == kat.cbc_pt,
@@ -228,6 +288,7 @@ fn cbc_decrypt_matches(kat: &Kat) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AES128Key;
 
     fn gcm_key_result() -> Result<AES128Key<GCM>, SymmetricCipherError> {
         let material =
@@ -244,10 +305,21 @@ mod tests {
             Some(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::NotRun))
         );
 
-        assert_eq!(self_test(), Ok(()));
+        // During the first run no AES key can be made, while the KAT's own keys can.
+        assert_eq!(
+            STATUS.run(|| {
+                gcm_key_result().err()
+                    == Some(SymmetricCipherError::SelfTestNotPassed(SelfTestStatus::Running))
+                    && gcm_encrypt_matches(&KAT)
+                    && gcm_decrypt_matches(&KAT)
+                    && cbc_decrypt_matches(&KAT)
+            }),
+            Ok(())
+        );
         assert_eq!(self_test_status(), SelfTestStatus::Passed);
         assert!(gcm_key_result().is_ok());
-        // A re-run from Passed runs again and passes.
+        // A re-run from Passed runs again and passes, and keys stay available while it runs.
+        assert_eq!(STATUS.run(|| gcm_key_result().is_ok()), Ok(()));
         assert_eq!(self_test(), Ok(()));
         assert_eq!(self_test_status(), SelfTestStatus::Passed);
 

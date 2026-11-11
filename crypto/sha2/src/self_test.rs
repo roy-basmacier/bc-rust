@@ -8,8 +8,10 @@
 //! SHA-256 CAST covers SHA-224, and the SHA-512 CAST covers SHA-384, SHA-512/224 and SHA-512/256,
 //! so SHA-224 is gated on the SHA-256 status and the other three on the SHA-512 status.
 //!
-//! The KATs drive the same public API an application would (`SHA256::new()`, `do_update`,
-//! `do_final_out`), so they pass through the same gate as every other hash.
+//! The KATs drive the same `Hash` API an application would (`do_update`, `do_final_out`) on the
+//! same SHA-256 and SHA-512 types, but create their hashes with the crate-private
+//! `new_ungated()`, which skips the gate. So no hash exists before its self-test has passed, and
+//! a gate that refuses (the module entering the error state mid-run) cannot panic out of a KAT.
 //!
 //! # The statuses
 //!
@@ -19,12 +21,9 @@
 //! every self-tested crate's gate reads, and which is permanent for the life of the process (the
 //! error-state decision recorded in the `bouncycastle-fips` docs).
 //!
-//! While a run is in progress its status is `Running`, and the gate admits `Running` as it admits
-//! `Passed`, because the KAT's own hashes go through it and nothing tells the KAT's thread from
-//! any other. So for the length of a run *every* thread may create that hash: during a re-run that
-//! is the background periodic self-test IG 10.3.E Resolution 5 allows; during the first run it is
-//! a hash made before the self-test has passed, which the `bouncycastle-fips` docs rule out by
-//! telling the application to run the power-on self-tests before creating any service.
+//! A hash can be created only while its status reads `Passed`: not during the first run, and not
+//! after a failure. A re-run reads `Passed` while it runs (IG 10.3.E Resolution 5 lets a repeated
+//! CAST run in the background), so hashes stay available through one.
 
 use bouncycastle_core::fips::{
     SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
@@ -75,7 +74,8 @@ const SHA512_KAT: HashKat<64> = HashKat {
 /// SHA-256 one has passed, creating a SHA-224 or SHA-256 hash panics; until the SHA-512 one has
 /// passed, creating a SHA-384, SHA-512 or SHA-512/t hash panics. That covers every way of making
 /// one: `new()`, `Default`, the one-shots, `from_suspended`, and the HMAC and HKDF over them. It
-/// may be run again at any time; the hashes stay available while it runs.
+/// may be run again at any time; once it has passed, the hashes stay available while it runs
+/// again.
 ///
 /// An application normally calls this through `bouncycastle_fips::power_on_self_tests()`, which
 /// also runs the other algorithms' self-tests and puts all of them in the error state if any
@@ -107,16 +107,15 @@ pub fn self_test() -> Result<(), SelfTestError> {
 }
 
 /// Where the SHA-256 self-test, which gates SHA-224 and SHA-256, stands. The hashes can be
-/// created in [`SelfTestStatus::Passed`] and, while a run is in progress,
-/// [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any self-tested algorithm has
+/// created only in [`SelfTestStatus::Passed`], which a re-run keeps reading while it runs. [`SelfTestStatus::Failed`] once any self-tested algorithm has
 /// failed.
 pub fn sha256_self_test_status() -> SelfTestStatus {
     SHA256_STATUS.get()
 }
 
 /// Where the SHA-512 self-test, which gates SHA-384, SHA-512, SHA-512/224 and SHA-512/256, stands.
-/// The hashes can be created in [`SelfTestStatus::Passed`] and, while a run is in progress,
-/// [`SelfTestStatus::Running`]. [`SelfTestStatus::Failed`] once any self-tested algorithm has
+/// The hashes can be created only in [`SelfTestStatus::Passed`], which a re-run keeps reading
+/// while it runs. [`SelfTestStatus::Failed`] once any self-tested algorithm has
 /// failed.
 pub fn sha512_self_test_status() -> SelfTestStatus {
     SHA512_STATUS.get()
@@ -136,8 +135,7 @@ pub(crate) fn require_sha512_passed() {
 
 fn require_passed(cell: &SelfTestStatusCell, algorithm: SelfTestedAlgorithm) {
     match cell.get() {
-        // Running: the KAT's own hashes come through here (see the module docs).
-        SelfTestStatus::Passed | SelfTestStatus::Running => {}
+        SelfTestStatus::Passed => {}
         other => panic!(
             "{} cannot be used: its FIPS 140-3 self-test is {other:?} \
              (run bouncycastle_fips::power_on_self_tests() first)",
@@ -154,14 +152,14 @@ fn run(sha256: &HashKat<32>, sha512: &HashKat<64>) -> Result<(), SelfTestError> 
 }
 
 fn sha256_matches(kat: &HashKat<32>) -> bool {
-    let mut hash = SHA256::new();
+    let mut hash = SHA256::new_ungated();
     hash.do_update(&kat.msg);
     let mut md = [0u8; 32];
     hash.do_final_out(&mut md) == md.len() && md == kat.md
 }
 
 fn sha512_matches(kat: &HashKat<64>) -> bool {
-    let mut hash = SHA512::new();
+    let mut hash = SHA512::new_ungated();
     hash.do_update(&kat.msg);
     let mut md = [0u8; 64];
     hash.do_final_out(&mut md) == md.len() && md == kat.md
@@ -187,10 +185,29 @@ mod tests {
         assert!(catch_unwind(SHA512_256::new).is_err());
         assert!(catch_unwind(|| SHA384::hash(b"")).is_err());
 
-        assert_eq!(self_test(), Ok(()));
+        // During the first run no hash can be made, while the KAT's own hashes can.
+        assert_eq!(
+            SHA256_STATUS.run(|| {
+                catch_unwind(SHA256::new).is_err()
+                    && catch_unwind(SHA224::new).is_err()
+                    && sha256_matches(&SHA256_KAT)
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            SHA512_STATUS.run(|| {
+                catch_unwind(SHA512::new).is_err()
+                    && catch_unwind(SHA384::new).is_err()
+                    && sha512_matches(&SHA512_KAT)
+            }),
+            Ok(())
+        );
         assert_eq!(sha256_self_test_status(), SelfTestStatus::Passed);
         assert_eq!(sha512_self_test_status(), SelfTestStatus::Passed);
         let _ = (SHA224::new(), SHA256::new(), SHA384::new(), SHA512::new(), SHA512_256::new());
+        // A re-run keeps the hashes available while it runs.
+        assert_eq!(SHA256_STATUS.run(|| catch_unwind(SHA256::new).is_ok()), Ok(()));
+        assert_eq!(SHA512_STATUS.run(|| catch_unwind(SHA512::new).is_ok()), Ok(()));
         // A re-run from Passed runs again and passes.
         assert_eq!(self_test(), Ok(()));
         assert_eq!(sha256_self_test_status(), SelfTestStatus::Passed);
