@@ -25,6 +25,7 @@
 //! after a failure. A re-run reads `Passed` while it runs (IG 10.3.E Resolution 5 lets a repeated
 //! CAST run in the background), so hashes stay available through one.
 
+use bouncycastle_core::errors::SuspendableError;
 use bouncycastle_core::fips::{
     SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
 };
@@ -73,7 +74,8 @@ const SHA512_KAT: HashKat<64> = HashKat {
 /// Runs the SHA-256 and then the SHA-512 self-test against compiled-in known answers. Until the
 /// SHA-256 one has passed, creating a SHA-224 or SHA-256 hash panics; until the SHA-512 one has
 /// passed, creating a SHA-384, SHA-512 or SHA-512/t hash panics. That covers every way of making
-/// one: `new()`, `Default`, the one-shots, `from_suspended`, and the HMAC and HKDF over them. It
+/// one: `new()`, `Default`, the one-shots, and the HMAC and HKDF over them; `from_suspended`
+/// returns [`SuspendableError::SelfTestNotPassed`] instead. It
 /// may be run again at any time; once it has passed, the hashes stay available while it runs
 /// again.
 ///
@@ -121,16 +123,33 @@ pub fn sha512_self_test_status() -> SelfTestStatus {
     SHA512_STATUS.get()
 }
 
-/// The gate in every SHA-224 / SHA-256 constructor (`SHA256Internal::new` and `from_suspended`).
-/// Panics, because those constructors are infallible or, for `from_suspended`, have no error for it.
+/// The gate in every SHA-224 / SHA-256 constructor (`SHA256Internal::new`, which `Default` and
+/// the one-shots call). Panics, because the constructor is infallible.
 pub(crate) fn require_sha256_passed() {
     require_passed(&SHA256_STATUS, SelfTestedAlgorithm::SHA256);
 }
 
-/// The gate in every SHA-384 / SHA-512 / SHA-512/t constructor (`SHA512Internal::new` and
-/// `from_suspended`). Panics, as [`require_sha256_passed`] does.
+/// The gate in every SHA-384 / SHA-512 / SHA-512/t constructor (`SHA512Internal::new`). Panics,
+/// as [`require_sha256_passed`] does.
 pub(crate) fn require_sha512_passed() {
     require_passed(&SHA512_STATUS, SelfTestedAlgorithm::SHA512);
+}
+
+/// The gate in `SHA256Internal::from_suspended`: `Err` until the SHA-256 self-test has passed.
+pub(crate) fn sha256_resumable() -> Result<(), SuspendableError> {
+    resumable(&SHA256_STATUS)
+}
+
+/// The gate in `SHA512Internal::from_suspended`: `Err` until the SHA-512 self-test has passed.
+pub(crate) fn sha512_resumable() -> Result<(), SuspendableError> {
+    resumable(&SHA512_STATUS)
+}
+
+fn resumable(cell: &SelfTestStatusCell) -> Result<(), SuspendableError> {
+    match cell.get() {
+        SelfTestStatus::Passed => Ok(()),
+        _ => Err(SuspendableError::SelfTestNotPassed),
+    }
 }
 
 fn require_passed(cell: &SelfTestStatusCell, algorithm: SelfTestedAlgorithm) {
@@ -246,8 +265,14 @@ mod tests {
         assert_eq!(sha512_self_test_status(), SelfTestStatus::Failed);
         assert!(catch_unwind(SHA256::new).is_err());
         assert!(catch_unwind(SHA512::new).is_err());
-        assert!(catch_unwind(|| SHA256::from_suspended(suspended256)).is_err());
-        assert!(catch_unwind(|| SHA512::from_suspended(suspended512)).is_err());
+        assert_eq!(
+            SHA256::from_suspended(suspended256).err(),
+            Some(SuspendableError::SelfTestNotPassed)
+        );
+        assert_eq!(
+            SHA512::from_suspended(suspended512).err(),
+            Some(SuspendableError::SelfTestNotPassed)
+        );
         assert_eq!(
             self_test(),
             Err(SelfTestError::NotPassed(SelfTestedAlgorithm::SHA256, SelfTestStatus::Failed))

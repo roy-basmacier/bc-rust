@@ -582,10 +582,9 @@ impl<PARAMS: SHA512InitValue> Suspendable<SUSPENDED_SHA512_STATE_LEN> for SHA512
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA512_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
-        // FIPS 140-3: resuming is creating a hash too; see `new`. SuspendableError has no
-        // self-test variant, so this panics as `new` does.
+        // FIPS 140-3: resuming is creating a hash too; see `new`.
         #[cfg(feature = "fips")]
-        crate::self_test::require_sha512_passed();
+        crate::self_test::sha512_resumable()?;
         // Resuming builds the state without the initial hash value, so evaluate it here: for
         // SHA-512/t that is what runs `check_t`, which makes an invalid `t` a compile error on
         // this path too.

@@ -64,6 +64,10 @@ pub enum SuspendableError {
     IncompatibleVersion,
     /// The serialized state is malformed or corrupt.
     InvalidData,
+    /// The algorithm's FIPS 140-3 self-test has not passed (it has not been run, or the module is
+    /// in the error state), so the state may not be resumed. Only with the `fips` feature.
+    #[cfg(feature = "fips")]
+    SelfTestNotPassed,
 }
 
 /// A semantic library version, ordered by `major`, then `minor`, then `patch`.

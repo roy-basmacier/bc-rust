@@ -433,10 +433,9 @@ impl<PARAMS: SHA256InitValue> Suspendable<SUSPENDED_SHA256_STATE_LEN> for SHA256
     fn from_suspended(
         serialized_state: [u8; SUSPENDED_SHA256_STATE_LEN],
     ) -> Result<Self, SuspendableError> {
-        // FIPS 140-3: resuming is creating a hash too; see `new`. SuspendableError has no
-        // self-test variant, so this panics as `new` does.
+        // FIPS 140-3: resuming is creating a hash too; see `new`.
         #[cfg(feature = "fips")]
-        crate::self_test::require_sha256_passed();
+        crate::self_test::sha256_resumable()?;
         debug_assert_eq!(SUSPENDED_SHA256_STATE_LEN, 108);
 
         // check the version tag

@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+# `fips` adds `SuspendableError::SelfTestNotPassed`, for a resume refused by a FIPS 140-3
+# self-test gate, and nothing else; it is off by default and turned on by `bouncycastle-core/fips`.
+fips = []
+
 [dependencies]
 
 [dev-dependencies]
