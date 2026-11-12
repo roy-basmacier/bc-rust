@@ -1,0 +1,180 @@
+# FIPS 140-3 self-tests for AES and SHA-2: summary of the work
+
+**Status: a self-test prototype, not a validated module.** It implements the known-answer
+self-tests (CASTs) FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms
+unusable until the self-tests pass, and the error state a failure enters. A FIPS 140-3
+validation needs much more (see [What is still missing](#what-is-still-missing)).
+
+Branch: `feature/fips-kats` on `github.com/roy-basmacier/bc-rust`, 21 commits on top of
+`release/0.1.4alpha`.
+
+This file is the overview. The detail lives in:
+
+| For | Read |
+|---|---|
+| The two layouts explored, measured, with every finding and the nine decisions | [`APPROACHES.md`](APPROACHES.md) |
+| The final design: usage, requirements (IG quotes), vectors, memory, security considerations | the crate docs, [`src/lib.rs`](src/lib.rs) (`cargo doc --manifest-path crypto/fips/Cargo.toml --open`) |
+| The application flow, runnable | [`examples/crypto_officer.rs`](examples/crypto_officer.rs) |
+| Why each change was made | the commit messages: `git log release/0.1.4alpha..feature/fips-kats` |
+
+## The task
+
+Prototype FIPS 140-3 known-answer tests for AES and SHA-2 only, to find out how the API should
+work: each algorithm has a self-test; a "crypto officer" builds the application with a `fips`
+crate that runs the self-tests once at startup and can run them again on demand (or by
+restarting); creating a key or service must check the self-test has passed; and no crate
+internals may be made public just for the KATs. Explain the approaches, with ups and downs.
+
+## How the work was done
+
+1. **Base** (`feature/fips-kats-base`): shared vocabulary types in `bouncycastle-core` behind a
+   `fips` feature, a `bouncycastle-fips` skeleton kept out of the workspace, and the choice of
+   vectors, each checked against its NIST source.
+2. **Two prototypes**, built independently:
+   * **Variant A** (`feature/fips-kats-separate-crate`): every KAT in `bouncycastle-fips`; the
+     status of each algorithm in a table in `core`; the AES and SHA-2 constructors read it.
+   * **Variant B** (`feature/fips-kats-embedded`): each algorithm crate carries its own KAT and
+     status behind its `fips` feature; `bouncycastle-fips` runs them in order.
+3. **Review and comparison**: [`APPROACHES.md`](APPROACHES.md). Measured both (diff size, public
+   items, mutants, binary size), listed 16 findings, considered three layouts not prototyped, and
+   put nine decisions to the project, all answered on 2026-11-10.
+4. **Convergence** (`feature/fips-kats`): variant B with the recommended changes, the CLI, the
+   example, the docs and the quality gates. This is what the PR contains.
+
+## The approaches in brief
+
+| | Variant A: separate crate | Variant B: embedded (chosen) |
+|---|---|---|
+| Where the KATs live | `bouncycastle-fips` | the algorithm crate (`aes`, `sha2`) |
+| Where the status lives | a table in `core` | a private `static` in the algorithm crate |
+| Can a pass be forged? | **Yes** (A-1): any code that writes the table first can record `Passed` for an untested algorithm | No: only the crate's own KAT run can produce `Passed` |
+| Changes to algorithm crates | tiny (15 and 42 lines) | about 300 lines each |
+| "KATs use the public API only" | enforced by the compiler | by convention |
+| An algorithm crate can report its own failure (needed for ML-KEM/ML-DSA pairwise tests) | no | yes |
+
+Also considered and not built: a wrapper-only crate (gates nothing a dependency bypasses), lazy
+self-tests on first use (possible later on top of B), and an automatic pre-`main` constructor
+(needs `unsafe`, platform-specific). Details and trade-offs in
+[`APPROACHES.md`](APPROACHES.md#options-considered-and-not-prototyped).
+
+**Why B:** A's forgeable pass is inherent to putting a writable status in `core`, and A cannot
+let an algorithm crate record a failure. A's advantages are about review cost; B's are about what
+the gate can be trusted to mean.
+
+## Decisions taken (2026-11-10)
+
+1. "No pub for KATs" means KATs must not need internals made public; an algorithm crate may
+   export `self_test()` and a status function.
+2. Layout: variant B.
+3. The KATs may bypass the gate through a crate-private entry, so the gate admits only `Passed`.
+4. Keep the explicit `power_on_self_tests()` call; decide on lazy-on-first-use later.
+5. A failure of any self-test stops **all** keys and hashes, existing and new, module-wide.
+6. `SHA256::new()` keeps panicking before power-on; `from_suspended` gets an error variant.
+7. Keep a cargo feature (not a `--cfg`) for now.
+8. Scope stays AES and SHA-2 only (no HMAC CAST yet).
+9. A FIPS 140-3 validation at Security Level 1 is the goal.
+
+## The final design
+
+* **`bouncycastle-core`** (`fips` feature): the status types; `SelfTestStatusCell`, which runs a
+  KAT, guards against concurrent runs and panics, and records the result; and the module error
+  state (`enter_error_state` / `error_state` / `assert_operational`): one process-wide flag,
+  set by any failure, never cleared.
+* **`bouncycastle-aes`, `bouncycastle-sha2`** (`fips` feature): each holds its KAT vectors and a
+  private status cell. `self_test()` runs the KAT; the gates refuse creation until `Passed`
+  (AES: `SymmetricCipherError::SelfTestNotPassed`; SHA-2: a panic in the infallible `new()`,
+  `SuspendableError::SelfTestNotPassed` from `from_suspended`), and after a failure every
+  operation on an existing key, worker or hash panics.
+* **`bouncycastle-fips`**: turns the features on and offers `power_on_self_tests()`,
+  `run_self_tests()` and `self_test_status()`. It is excluded from the root workspace so that
+  `cargo test --workspace` never runs gated.
+* **`bc-rust` CLI** (`fips` feature): every invocation runs the power-on self-tests first and
+  exits with status 3 if they fail; `bc-rust fips-self-test` re-runs them and prints each
+  algorithm's status. Without the feature the CLI is unchanged.
+
+Application flow, as in the example:
+
+```rust
+use bouncycastle_fips::{power_on_self_tests, run_self_tests};
+
+fn main() {
+    if let Err(e) = power_on_self_tests() {       // first thing, before any AES or SHA-2 use
+        eprintln!("FIPS self-tests failed: {e:?}");
+        std::process::exit(1);
+    }
+    // ... create AES keys and SHA-2 hashes as usual ...
+    run_self_tests().expect("periodic self-test"); // on demand; services stay usable
+}
+```
+
+Vectors (all checked against the NIST sources): AES-GCM-128 encrypt and decrypt, CAVP
+`gcmEncryptExtIV128.rsp` Count 0; AES-CBC-128 decrypt, SP 800-38A F.2.2; SHA-256 and SHA-512,
+CAVP `ShortMsg` `Len = 24`. One AES CAST covers every mode and key size, the SHA-256 CAST covers
+SHA-224, and the SHA-512 CAST covers SHA-384 and SHA-512/t (IG 10.3.A).
+
+## Findings: what convergence did with each
+
+Finding ids are those of [`APPROACHES.md`](APPROACHES.md#findings).
+
+| Finding | Problem | Outcome | Commit |
+|---|---|---|---|
+| A-1 … A-5 | variant A's defects (forgeable pass, etc.) | not applicable: variant A not chosen | — |
+| B-1 | a crate's own failure stopped only that crate | **fixed**: one module error state in `core` | `b3f5ebf4` |
+| B-2 | a panicking KAT left the status `Running` | **fixed**: unwind guard records a failure | `3dc64e79` |
+| B-3 | state machine duplicated per crate | **fixed**: one in `core` (`SelfTestStatusCell::run`) | `3dc64e79` |
+| B-4 | an overlapping power-on call returned an error; single-feature builds untested | **fixed**: waits and reports; scenarios run per feature | `f1375b29` |
+| B-5 | a match arm in `bouncycastle-fips` never tested | **gone**: the arm no longer exists | `b3f5ebf4` |
+| S-1 | services could be created during the first run | **fixed**: gate admits only `Passed`; KATs run ungated (decision 3) | `65860d9f` |
+| S-2 | only creation was gated | **fixed**: existing keys, workers, hashes stop too (decision 5) | `278f8eb7` |
+| S-3 | a failure mid-run made a KAT panic | **fixed**: KATs never pass through a gate | `65860d9f` |
+| S-4 | algorithm crates' own test suites fail with `fips` on | **open**, documented | — |
+| S-5 | HMAC, HKDF, DRBG usable with no CAST | **out of scope** (decision 8), documented | — |
+| S-6 | `cargo mutants` could not run on `bouncycastle-fips` | **fixed**: profile added, `--in-place` documented | `438b8ac9` |
+| decision 6 | `from_suspended` panicked | **fixed**: `SuspendableError::SelfTestNotPassed` | `ece224f7` |
+| from A | every byte of every vector must matter | **adopted** in the unit tests | `68cbdacd` |
+
+The rest of the branch: the CLI (`fc2f4456`), the crypto officer example (`b11863a9`) and the
+docs (`c10dfe8b`).
+
+## Verification
+
+* `cargo test --workspace` (features off): 2673 passed, 0 failed, 8 ignored.
+* `bouncycastle-fips` tests with each feature combination (both, `aes` only, `sha2` only, none);
+  `aes` and `sha2` `--features fips --lib`; `core --features fips`; `cargo test -p cli` with and
+  without `--features fips`; the example run by hand.
+* `cargo build --workspace --all-targets --all-features`; `cargo fmt --all --check`.
+* `cargo mutants` on `bouncycastle-fips`: 9 mutants, 8 caught, 1 unviable, 0 missed. Not yet run
+  on the self-test code in `core`, `aes` and `sha2`.
+* `quality_stats.sh` against variant B: code +180 lines, docstrings +171; `Err()` in core code
+  607 → 597; `unwrap` in core code 1003 → 1005, both in test code under `src/`.
+* Peak stack: first power-on 1964 B, power-on once passed 40 B, AES self-test 1948 B, SHA-2
+  self-test 1320 B. With `fips`, each SHA-2 hash is 8 B larger.
+
+## What is still missing
+
+Before a Security Level 1 validation (decision 9), at least:
+
+* a pre-operational **software integrity test** over everything in the boundary, and a way to do
+  one for a Rust library linked statically into an application (the hardest open question);
+* an approved **service indicator**, since bc-rust also ships non-approved algorithms (SM3, SM4,
+  ARIA, Camellia);
+* a defined **cryptographic boundary** when each algorithm is a separate crate;
+* **CASTs for every other approved algorithm** offered: HMAC, the DRBG, SHA-3, the KDFs, ML-KEM,
+  ML-DSA; and **pairwise consistency tests** on generated key pairs;
+* entropy source health tests, the GCM IV rules (IG C.H), the security policy and CAVP
+  certificates.
+
+Smaller follow-ups: decide on lazy self-tests on first use (decision 4); let the algorithm crates'
+own test suites run with `fips` on (S-4); revisit the cargo feature against a build-wide `--cfg`
+(decision 7).
+
+Full list and references: [`APPROACHES.md`](APPROACHES.md#what-a-fips-140-3-module-still-needs).
+
+## Trying it
+
+```sh
+cargo test --manifest-path crypto/fips/Cargo.toml                    # the fips crate
+cargo run --example crypto_officer --manifest-path crypto/fips/Cargo.toml
+cargo run -p cli --features fips -- fips-self-test                   # CLI: prints each status
+cargo test -p bouncycastle-aes --features fips --lib                 # AES KAT unit test
+```
