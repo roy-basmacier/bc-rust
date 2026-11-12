@@ -34,9 +34,10 @@
 //! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
+//! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
 //!
 //! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
-//! test, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
+//! test, the module integrity check, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
 //! the integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1 [10.20]).
 //!
 //! # The software integrity test
@@ -50,6 +51,25 @@
 //! power-on fails**, so the feature is off by default; the tests of this crate run with it as
 //! `cargo test --manifest-path crypto/fips/Cargo.toml --features integrity --tests` (the doc
 //! examples power on, so they fail under it).
+//!
+//! # The module source pin
+//!
+//! Every build embeds the module table: each crate inside the module boundary
+//! ([`module_table`]), with the HMAC-SHA-512 of its sources under the public key
+//! [`MODULE_HMAC_KEY`], and the record of the toolchain that built it ([`toolchain`]). The module
+//! HMAC ([`module_hmac`]) is derived from the table at run time. It depends only on the sources,
+//! not on the program that links the module or on how it was built, so it is the value a
+//! validated version publishes in its Security Policy, and anyone can recompute it from a
+//! checkout with `dev_scripts/fips_module_hmac.py`.
+//!
+//! With the `fips-validated` feature, the build fails unless the module HMAC equals the published
+//! constant compiled into this crate, and power-on checks it again (the module integrity check).
+//! Without it, nothing is compared. **No version is validated yet**: the constant is the module
+//! HMAC of the current sources, so any change to a module crate fails a `fips-validated` build
+//! until it is updated; the failing build prints the new value.
+//!
+//! The build fails, whatever the features, if a module crate gains a dependency outside the
+//! module, or if the module's crates are not exactly the dependencies this crate lists.
 //!
 //! # Usage Examples
 //!
@@ -109,6 +129,23 @@
 //!
 //! ```toml
 //! bouncycastle-fips = { version = "0.1.4", default-features = false, features = ["aes"] }
+//! ```
+//!
+//! Print the module table, the toolchain record and the module HMAC, for comparison with the
+//! Security Policy:
+//!
+//! ```
+//! use bouncycastle_fips::{module_hmac, module_table, power_on_self_tests, toolchain};
+//!
+//! power_on_self_tests().expect("self-tests pass");
+//! for entry in module_table() {
+//!     let hex: String = entry.hmac.iter().map(|b| format!("{b:02x}")).collect();
+//!     println!("{} {hex}", entry.package);
+//! }
+//! let t = toolchain();
+//! println!("{} on {} for {}, opt-level {}, {:?}", t.rustc, t.host, t.target, t.opt_level, t.features);
+//! let module: String = module_hmac().unwrap().iter().map(|b| format!("{b:02x}")).collect();
+//! println!("module-hmac {module}");
 //! ```
 //!
 //! `examples/crypto_officer.rs` runs the whole flow, including what an application that skips
@@ -225,9 +262,11 @@
 //! | [`power_on_self_tests`] after it has passed | 40 B |
 //! | `bouncycastle_aes::self_test` | 1948 B |
 //! | `bouncycastle_sha2::self_test` | 1320 B |
+//! | [`module_hmac`] | 3608 B |
 //!
-//! The state is a byte per algorithm and one for the module error state, all in `static`s. With
-//! the `fips` feature each SHA-2 hash is 8 bytes larger (whether its output is gated).
+//! The module table is a `static` of 12 package names and 12 x 64 hash bytes. The state is a
+//! byte per algorithm and one for the module error state, all in `static`s. With the `fips`
+//! feature each SHA-2 hash is 8 bytes larger (whether its output is gated).
 //!
 //! # 🚨 Security Considerations 🚨
 //!
@@ -255,6 +294,9 @@
 //! * **The integrity test detects corruption, not an attacker.** Its key is public and its value
 //!   sits in the binary it checks, so whoever can rewrite a segment can rewrite the value. It
 //!   does not cover writable segments. Without the `integrity` feature there is none.
+//! * **The module HMAC pins sources, not this program.** It says which sources the build saw,
+//!   if the build was honest; it is not computed over the compiled code, and its key is public.
+//!   The integrity test is what checks the program itself.
 //! * **`unsafe` code.** The integrity test reads the program's own headers and segments at the
 //!   addresses the loader mapped them to, and the slot with a volatile read; that is the crate's
 //!   only `unsafe` code, and only with the `integrity` feature.
@@ -276,13 +318,33 @@ use bouncycastle_sha2 as sha2;
 
 #[cfg(feature = "sha2")]
 pub mod binary_hmac;
+#[cfg(feature = "fips-validated")]
+mod expected_module_hmac;
 #[cfg(feature = "sha2")]
 mod hmac_self_test;
 #[cfg(feature = "integrity")]
 mod integrity;
+mod module_table;
+
+pub use module_table::{
+    MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleTableEntry, ToolchainRecord, module_hmac, module_table,
+    toolchain,
+};
+
+// The boundary crates this crate does not call. They are dependencies so that build.rs receives
+// their source directories and pins them in the module table; see `Cargo.toml`.
+use bouncycastle_ascon as _;
+use bouncycastle_cipher as _;
+use bouncycastle_ec as _;
+use bouncycastle_ecdsa as _;
+use bouncycastle_hkdf as _;
+use bouncycastle_rng as _;
+use bouncycastle_sha3 as _;
+use bouncycastle_utils as _;
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
-/// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test.
+/// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test and
+/// the module integrity check.
 pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::SHA256,
@@ -292,6 +354,8 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     SelfTestedAlgorithm::HMAC_SHA512,
     #[cfg(feature = "integrity")]
     SelfTestedAlgorithm::SoftwareIntegrity,
+    #[cfg(feature = "fips-validated")]
+    SelfTestedAlgorithm::ModuleIntegrity,
     #[cfg(feature = "aes")]
     SelfTestedAlgorithm::AES,
 ];
@@ -318,6 +382,11 @@ const CRATES: &[Crate] = &[
     Crate {
         algorithms: &[SelfTestedAlgorithm::SoftwareIntegrity],
         self_test: integrity::self_test,
+    },
+    #[cfg(feature = "fips-validated")]
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::ModuleIntegrity],
+        self_test: module_table::validated::self_test,
     },
     #[cfg(feature = "aes")]
     Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
@@ -362,6 +431,8 @@ pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
         SelfTestedAlgorithm::HMAC_SHA512 => hmac_self_test::status(),
         #[cfg(feature = "integrity")]
         SelfTestedAlgorithm::SoftwareIntegrity => integrity::status(),
+        #[cfg(feature = "fips-validated")]
+        SelfTestedAlgorithm::ModuleIntegrity => module_table::validated::status(),
         #[cfg(feature = "aes")]
         SelfTestedAlgorithm::AES => aes::self_test_status(),
         _ => SelfTestStatus::NotRun,

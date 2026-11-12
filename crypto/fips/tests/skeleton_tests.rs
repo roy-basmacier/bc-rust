@@ -15,6 +15,9 @@ fn self_tested_follows_the_features_hashes_first() {
     if cfg!(feature = "integrity") {
         expected.push(SelfTestedAlgorithm::SoftwareIntegrity);
     }
+    if cfg!(feature = "fips-validated") {
+        expected.push(SelfTestedAlgorithm::ModuleIntegrity);
+    }
     if cfg!(feature = "aes") {
         expected.push(SelfTestedAlgorithm::AES);
     }

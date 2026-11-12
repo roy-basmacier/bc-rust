@@ -17,6 +17,17 @@ fn services_refuse_before_power_on() {
     }
 }
 
+/// The module HMAC needs HMAC-SHA-512, which has not been self-tested yet.
+#[cfg(feature = "sha2")]
+#[test]
+fn module_hmac_refuses_before_power_on() {
+    use bouncycastle_fips::{SelfTestError, SelfTestedAlgorithm, module_hmac};
+    assert_eq!(
+        module_hmac(),
+        Err(SelfTestError::NotPassed(SelfTestedAlgorithm::HMAC_SHA512, SelfTestStatus::NotRun))
+    );
+}
+
 #[cfg(feature = "sha2")]
 #[test]
 #[should_panic(expected = "SHA-256 cannot be used: its FIPS 140-3 self-test is NotRun")]

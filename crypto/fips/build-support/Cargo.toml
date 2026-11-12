@@ -1,0 +1,18 @@
+# The build-time half of bouncycastle-fips's module source pin, used only by its build script.
+#
+# A crate of its own so that bouncycastle-fips's features, which name `bouncycastle-sha2/fips`,
+# cannot reach the copy of SHA-512 its build script uses: a `"<dep>/<feature>"` feature string
+# names a dependency and reaches every declaration of that name, build-dependencies included, and
+# Cargo refuses a second, renamed declaration of the same package. This crate's own dependency on
+# bouncycastle-sha2 is named by no feature of bouncycastle-fips, so as a build-dependency it is
+# built without `fips`, and its SHA-512 runs without a self-test.
+[package]
+name = "bouncycastle-fips-build"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+
+[dependencies]
+bouncycastle-core = { path = "../../core" }
+bouncycastle-hmac = { path = "../../hmac" }
+bouncycastle-sha2 = { path = "../../sha2" }

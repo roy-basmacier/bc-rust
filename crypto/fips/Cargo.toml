@@ -11,30 +11,53 @@ rust-version = "1.88"
 [features]
 default = ["aes", "sha2"]
 # Self-test AES (all modes and key sizes) and gate its services on the result.
-aes = ["dep:bouncycastle-aes"]
+aes = ["bouncycastle-aes/fips"]
 # Self-test SHA-256 and SHA-512 (covering SHA-224, SHA-384, SHA-512/224 and SHA-512/256) and gate
 # their services on the result; then self-test HMAC-SHA-512.
-sha2 = ["dep:bouncycastle-sha2", "dep:bouncycastle-hmac"]
+sha2 = ["bouncycastle-sha2/fips"]
 # Run the software integrity test (the binary HMAC) at power-on, after HMAC-SHA-512's self-test.
 # ELF targets only. Every program built with it fails power-on until the post-link tool has
 # written its binary HMAC; see `binary_hmac`.
 integrity = ["sha2"]
+# A release build of a validated version: the module HMAC must equal the constant in
+# src/expected_module_hmac.rs, or the build fails, and power-on checks it again.
+fips-validated = ["sha2"]
 
+# The module boundary: every crate of the module, which is the normal-dependency closure of aes,
+# ascon, hmac, hkdf, sha3, ec and ecdsa. Each one is a direct dependency, whether or not this
+# crate uses it, because only a direct dependency's `links` metadata reaches build.rs, which
+# hashes the sources of each. build.rs keeps the same list and fails the build if the two, or the
+# closure, disagree.
 [dependencies]
-bouncycastle-core = { path = "../core", features = ["fips"] }
-bouncycastle-aes = { path = "../aes", optional = true, features = ["fips"] }
-bouncycastle-sha2 = { path = "../sha2", optional = true, features = ["fips"] }
-bouncycastle-hmac = { path = "../hmac", optional = true }
-
-[dev-dependencies]
+bouncycastle-aes = { path = "../aes" }
+bouncycastle-ascon = { path = "../ascon" }
 bouncycastle-cipher = { path = "../cipher" }
+bouncycastle-core = { path = "../core", features = ["fips"] }
+bouncycastle-ec = { path = "../ec" }
+bouncycastle-ecdsa = { path = "../ecdsa" }
+bouncycastle-hkdf = { path = "../hkdf" }
+bouncycastle-hmac = { path = "../hmac" }
 bouncycastle-rng = { path = "../rng" }
+bouncycastle-sha2 = { path = "../sha2" }
+bouncycastle-sha3 = { path = "../sha3" }
+bouncycastle-utils = { path = "../utils" }
+
+# The build script's HMAC-SHA-512 comes through this crate, never a direct build-dependency on
+# bouncycastle-sha2; see build-support/Cargo.toml for why.
+[build-dependencies]
+bouncycastle-fips-build = { path = "build-support" }
+
+# The tests of the build script's logic; see tests/source_pin_tests.rs.
+[dev-dependencies]
+bouncycastle-fips-build = { path = "build-support" }
 
 [[example]]
 name = "crypto_officer"
 required-features = ["aes", "sha2"]
 
 [workspace]
+# `cargo test --manifest-path crypto/fips/Cargo.toml` tests the build-time half too.
+default-members = [".", "build-support"]
 
 # The root manifest's `mutants` profile, which `.cargo/mutants.toml` names: profiles are read
 # from the workspace root, and this crate is its own. Keep the two in step.
