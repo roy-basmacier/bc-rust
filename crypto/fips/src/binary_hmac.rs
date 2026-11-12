@@ -24,8 +24,9 @@
 //! * **The value** is HMAC-SHA-512, keyed with [`KEY`], of those ranges' bytes concatenated, with
 //!   nothing between them ([`image_hmac`]).
 //!
-//! The tool must run after anything that changes the read-only segments (a `strip` does not, but
-//! a later link or a relocation does) and before any code signing that rewrites them. ELF only:
+//! The tool must run after anything that changes the read-only segments and before any code
+//! signing that rewrites them. That includes `strip`: the first segment holds the ELF header,
+//! whose `e_shoff`, `e_shnum` and `e_shstrndx` a `strip` rewrites. ELF only:
 //! 32- and 64-bit, either byte order.
 //!
 //! # 🚨 Security Considerations 🚨
