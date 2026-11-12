@@ -12,6 +12,9 @@ fn self_tested_follows_the_features_hashes_first() {
             SelfTestedAlgorithm::HMAC_SHA512,
         ]);
     }
+    if cfg!(feature = "integrity") {
+        expected.push(SelfTestedAlgorithm::SoftwareIntegrity);
+    }
     if cfg!(feature = "aes") {
         expected.push(SelfTestedAlgorithm::AES);
     }

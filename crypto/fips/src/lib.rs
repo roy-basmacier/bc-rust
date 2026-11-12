@@ -4,10 +4,11 @@
 //! self-tests FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms unusable
 //! until the self-tests pass, and the error state a failure enters. It is not a FIPS 140-3
 //! validated cryptographic module, and using it does not make an application one: a validation
-//! also needs, at least, a software integrity test, an approved service indicator, a defined
-//! cryptographic boundary, self-tests for every other approved algorithm offered (the DRBG,
-//! SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md` beside this crate lists
-//! what is still missing.
+//! also needs, at least, a software integrity test that is on in every build (here it is the
+//! `integrity` feature, and its post-link tool is still to come), an approved service
+//! indicator, a defined cryptographic boundary, self-tests for every other approved algorithm
+//! offered (the DRBG, SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md`
+//! beside this crate lists what is still missing.
 //!
 //! Each algorithm crate carries its own self-test and status behind its `fips` cargo feature
 //! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`); this crate turns those features
@@ -32,6 +33,23 @@
 //! |---|---|---|
 //! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
+//! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
+//!
+//! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
+//! test, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
+//! the integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1 [10.20]).
+//!
+//! # The software integrity test
+//!
+//! With the `integrity` feature, power-on also runs the pre-operational software integrity test
+//! (ISO/IEC 19790:2012 7.10.2.2): an HMAC-SHA-512 over the program's own read-only loaded
+//! segments, compared with a value a post-link tool writes into a slot in the finished binary.
+//! It covers the whole program, not only this module's code, because cross-crate inlining and
+//! LTO put module code inside the application's functions. [`binary_hmac`] has the format, which
+//! is a contract with that tool. **Until the tool has run on a binary, its slot is empty and
+//! power-on fails**, so the feature is off by default; the tests of this crate run with it as
+//! `cargo test --manifest-path crypto/fips/Cargo.toml --features integrity --tests` (the doc
+//! examples power on, so they fail under it).
 //!
 //! # Usage Examples
 //!
@@ -234,11 +252,17 @@
 //! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
 //!   that any crate can report a failure (a pairwise consistency test, later). Nothing can clear
 //!   it or record a pass, but any code in the process can stop every gated algorithm with it.
+//! * **The integrity test detects corruption, not an attacker.** Its key is public and its value
+//!   sits in the binary it checks, so whoever can rewrite a segment can rewrite the value. It
+//!   does not cover writable segments. Without the `integrity` feature there is none.
+//! * **`unsafe` code.** The integrity test reads the program's own headers and segments at the
+//!   addresses the loader mapped them to, and the slot with a volatile read; that is the crate's
+//!   only `unsafe` code, and only with the `integrity` feature.
 //! * **The self-tests detect a faulty implementation**, not misuse: they say nothing about how
 //!   keys, nonces or IVs are chosen.
 
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![forbid(missing_docs)]
 
 pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
@@ -254,9 +278,11 @@ use bouncycastle_sha2 as sha2;
 pub mod binary_hmac;
 #[cfg(feature = "sha2")]
 mod hmac_self_test;
+#[cfg(feature = "integrity")]
+mod integrity;
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
-/// enabled cargo features, hashes first, then HMAC-SHA-512.
+/// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test.
 pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::SHA256,
@@ -264,6 +290,8 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     SelfTestedAlgorithm::SHA512,
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::HMAC_SHA512,
+    #[cfg(feature = "integrity")]
+    SelfTestedAlgorithm::SoftwareIntegrity,
     #[cfg(feature = "aes")]
     SelfTestedAlgorithm::AES,
 ];
@@ -284,6 +312,13 @@ const CRATES: &[Crate] = &[
     },
     #[cfg(feature = "sha2")]
     Crate { algorithms: &[SelfTestedAlgorithm::HMAC_SHA512], self_test: hmac_self_test::self_test },
+    // The integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1
+    // [10.20]); it runs before the remaining self-tests. The module HMAC goes after it.
+    #[cfg(feature = "integrity")]
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::SoftwareIntegrity],
+        self_test: integrity::self_test,
+    },
     #[cfg(feature = "aes")]
     Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
 ];
@@ -325,6 +360,8 @@ pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
         SelfTestedAlgorithm::SHA512 => sha2::sha512_self_test_status(),
         #[cfg(feature = "sha2")]
         SelfTestedAlgorithm::HMAC_SHA512 => hmac_self_test::status(),
+        #[cfg(feature = "integrity")]
+        SelfTestedAlgorithm::SoftwareIntegrity => integrity::status(),
         #[cfg(feature = "aes")]
         SelfTestedAlgorithm::AES => aes::self_test_status(),
         _ => SelfTestStatus::NotRun,

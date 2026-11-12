@@ -73,14 +73,14 @@ fn matches(kat: &HmacKat) -> bool {
     generator.do_final_out(&mut mac) == mac.len() && mac == kat.mac
 }
 
-// One test, because the status is process-global and shared by every unit test of the crate.
+// One test, because the status is process-global and shared by every unit test of the crate
+// (the integrity test's runs this self-test too).
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn passes_and_rejects_a_flipped_byte_anywhere() {
-        assert_eq!(status(), SelfTestStatus::NotRun);
         bouncycastle_sha2::self_test().expect("SHA-512, which HMAC-SHA-512 needs, passes");
         assert_eq!(self_test(), Ok(()));
         assert_eq!(status(), SelfTestStatus::Passed);

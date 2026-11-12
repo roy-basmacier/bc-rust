@@ -1,7 +1,7 @@
 //! Concurrent runs: several threads power on and re-run the self-tests while creating services.
 //! Every call succeeds -- one that overlaps another thread's run waits for it and reports its
 //! result -- and the services stay usable throughout.
-#![cfg(any(feature = "aes", feature = "sha2"))]
+#![cfg(all(any(feature = "aes", feature = "sha2"), not(feature = "integrity")))]
 
 mod common;
 
