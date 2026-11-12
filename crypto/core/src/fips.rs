@@ -178,7 +178,8 @@ impl Drop for FailOnUnwind<'_> {
     }
 }
 
-/// An algorithm that has its own self-test, named as FIPS 140-3 IG 10.3.A names the CASTs.
+/// An algorithm that has its own self-test, named as FIPS 140-3 IG 10.3.A names the CASTs, or
+/// the software integrity test.
 ///
 /// One algorithm's self-test covers every variant of it the library offers: [`Self::AES`] covers
 /// all AES modes and key sizes, [`Self::SHA256`] covers SHA-224 and SHA-256, and [`Self::SHA512`]
@@ -192,21 +193,32 @@ pub enum SelfTestedAlgorithm {
     SHA256,
     /// SHA-512 (FIPS 180-4), also covering SHA-384, SHA-512/224 and SHA-512/256.
     SHA512,
+    /// HMAC-SHA-512 (FIPS 198-1), the algorithm of the software integrity test.
+    #[allow(non_camel_case_types)]
+    HMAC_SHA512,
+    /// Not an algorithm: the pre-operational software integrity test (ISO/IEC 19790:2012
+    /// 7.10.2.2), an HMAC-SHA-512 over the program's read-only loaded segments.
+    SoftwareIntegrity,
 }
 
 impl SelfTestedAlgorithm {
     /// Every self-tested algorithm, in the order the self-tests run.
     ///
     /// The hashes come first so that a known-answer test compared through a hash (FIPS 140-3 IG
-    /// 10.3.A, GeneralNote7) only ever uses a hash that has already passed.
-    pub const ALL: [Self; 3] = [Self::SHA256, Self::SHA512, Self::AES];
+    /// 10.3.A, GeneralNote7) only ever uses a hash that has already passed. HMAC-SHA-512 follows
+    /// SHA-512, and the software integrity test follows HMAC-SHA-512, the algorithm it uses
+    /// (ISO/IEC 19790:2012 7.10.1 [10.20], as FIPS 140-3 IG 10.2.A quotes it).
+    pub const ALL: [Self; 5] =
+        [Self::SHA256, Self::SHA512, Self::HMAC_SHA512, Self::SoftwareIntegrity, Self::AES];
 
     /// The algorithm's position in [`Self::ALL`].
     const fn index(self) -> u8 {
         match self {
             Self::SHA256 => 0,
             Self::SHA512 => 1,
-            Self::AES => 2,
+            Self::HMAC_SHA512 => 2,
+            Self::SoftwareIntegrity => 3,
+            Self::AES => 4,
         }
     }
 
@@ -216,6 +228,8 @@ impl SelfTestedAlgorithm {
             Self::AES => "AES",
             Self::SHA256 => "SHA-256",
             Self::SHA512 => "SHA-512",
+            Self::HMAC_SHA512 => "HMAC-SHA-512",
+            Self::SoftwareIntegrity => "software integrity",
         }
     }
 }
@@ -275,4 +289,18 @@ pub fn error_state() -> Option<SelfTestedAlgorithm> {
     // Only `enter_error_state` writes ERROR_STATE, and only NO_ERROR (which `ALL.get` maps to None)
     // or an index into ALL.
     SelfTestedAlgorithm::ALL.get(usize::from(ERROR_STATE.load(Ordering::Acquire))).copied()
+}
+
+// The error state stores a cause as its index, and a process can enter the error state only once,
+// so the integration tests can round-trip one cause each; this checks every index at once.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_is_the_position_in_all() {
+        for (i, algorithm) in SelfTestedAlgorithm::ALL.iter().enumerate() {
+            assert_eq!(usize::from(algorithm.index()), i, "{}", algorithm.name());
+        }
+    }
 }

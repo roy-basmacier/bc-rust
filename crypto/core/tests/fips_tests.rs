@@ -96,11 +96,19 @@ fn status_cell_pass_on_one_thread_is_seen_on_another() {
 fn algorithms_run_hashes_first_and_have_their_ig_names() {
     assert_eq!(
         SelfTestedAlgorithm::ALL,
-        [SelfTestedAlgorithm::SHA256, SelfTestedAlgorithm::SHA512, SelfTestedAlgorithm::AES]
+        [
+            SelfTestedAlgorithm::SHA256,
+            SelfTestedAlgorithm::SHA512,
+            SelfTestedAlgorithm::HMAC_SHA512,
+            SelfTestedAlgorithm::SoftwareIntegrity,
+            SelfTestedAlgorithm::AES
+        ]
     );
     assert_eq!(SelfTestedAlgorithm::AES.name(), "AES");
     assert_eq!(SelfTestedAlgorithm::SHA256.name(), "SHA-256");
     assert_eq!(SelfTestedAlgorithm::SHA512.name(), "SHA-512");
+    assert_eq!(SelfTestedAlgorithm::HMAC_SHA512.name(), "HMAC-SHA-512");
+    assert_eq!(SelfTestedAlgorithm::SoftwareIntegrity.name(), "software integrity");
 }
 
 #[test]
