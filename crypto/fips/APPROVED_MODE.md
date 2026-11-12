@@ -30,7 +30,7 @@ a throwaway probe on cargo 1.98.1 stable ([How this was checked](#how-this-was-c
 and recorded by `bouncycastle-fips`, whose own public API offers only approved services.**
 
 * `bouncycastle-ec` and `bouncycastle-ecdsa` put each non-approved curve behind its own cargo
-  feature. Those features are on by default, so `cargo build --workspace` and every existing
+  feature (as decided, that is SM2 alone, in `ec`). Those features are on by default, so `cargo build --workspace` and every existing
   consumer are unchanged. A feature only adds a curve; none removes one, so they unify safely.
 * Each crate's build script (already present since sub-issue 1) also exports its enabled feature
   set as `links` metadata. The combining build script in `bouncycastle-fips` reads it, writes it
@@ -44,6 +44,34 @@ and recorded by `bouncycastle-fips`, whose own public API offers only approved s
 Nothing in this rewrites a source file, so the table is the same for both builds by
 construction; [the last section](#proving-the-same-table-acceptance-criterion) describes the test
 that proves it.
+
+## Decisions (2026-11-12)
+
+The four [open decisions](#open-decisions) were put to the project owner the same day:
+
+1. **Mechanism: A + C, as recommended.**
+2. **Curves: P-256, P-384, P-521, brainpoolP256r1/384r1/512r1 and secp256k1 are all in the
+   approved build; only SM2 is left out.** Not the recommendation (P-curves only). The rule is to
+   follow BC-FJA. In the 3.0.X line (`bc-fips-3.0.X-java`, `main` at `90ad7196`),
+   `org.bouncycastle.crypto.fips.FipsEC.approvedKeySet` is built from every `DomainParameterID`
+   except the binary B-/K- curves (those only with the `org.bouncycastle.ec.enable_f2m`
+   override). That set includes P-224 to P-521, brainpoolP224r1 to P512r1 and their `t1` twists,
+   and secp256k1, with field size of at least 224 bits enforced by `validateCurveSize`. SM2 and
+   SM3 are in the non-approved general provider (`core-gprov`, `crypto/general/SM2*.java`,
+   `SM3Digest.java`), which is registered only outside approved-only mode. (The older 2.0.X line,
+   `bc-fips-java` on `2.0.X`, approves only the NIST curves; 3.0.X is the line followed here.)
+   The purpose conditions in SP 800-186 Appendix H belong in the Security Policy, as they do for
+   BC-FJA. One consequence: **`bouncycastle-ecdsa` has no curve to gate.** The only feature
+   needed is `bouncycastle-ec/sm2`. The "Options" section below is left as written before the
+   decision, and "What changes" is narrowed to match it.
+3. **Generic doors: facade types only, as recommended.** `HMACParams` stays unsealed and the
+   algorithm crates keep `&mut dyn RNG`. In an approved build `bouncycastle-fips` offers the
+   concrete approved HKDF/HMAC aliases and ECDSA wrappers that take a `HashDRBG_*`. BC-FJA draws
+   the same HKDF line: `FipsKDF.AgreementKDFPRF` lists SHA-1, SHA-2 and SHA-3 (as hashes, HMACs,
+   and KMAC128/256), which matches SP 800-56Cr2 Table 4. SM3 is not among them.
+4. **CLI: a separate build later, as recommended.** `cli`'s `fips` feature stays "a full build
+   with the self-tests and integrity checks". An approved-mode `bc-rust` will be built from its
+   own workspace in a later task.
 
 ## What is not approved, as of `d54a9687`
 
@@ -204,8 +232,7 @@ Every crate checks `#[cfg(not(bc_fips_approved))]` around its non-approved items
 ## Recommendation: A for compilation, C for the service interface, B kept in reserve
 
 1. **Features (A)** in `ec` and `ecdsa` (and `eccdh` in sub-task 7), default-on, additive, one
-   per non-approved curve family. Which families are "non-approved" is
-   [open decision 2](#open-decisions).
+   per non-approved curve family. As decided, that is `sm2` in `ec` only.
 2. **Export the feature set.** Each boundary crate's existing `build.rs` adds one line,
    `cargo:features=<its CARGO_FEATURE_* list>`, beside `cargo:src_dir`. That is a change to
    `build.rs`, so it changes those crates' table entries once, when it lands, and never again
@@ -220,8 +247,8 @@ Every crate checks `#[cfg(not(bc_fips_approved))]` around its non-approved items
 4. **Facade (C)** for what compilation cannot remove. In an `approved-only` build,
    `bouncycastle-fips` re-exports the approved services as concrete types: the `HKDF_SHA*`
    aliases rather than `HKDF<H>`, and ECDSA key generation and random-`k` signing wrapped to take
-   a `HashDRBG_*` rather than `&mut dyn RNG`. Whether the generic doors are also shut at the type
-   level is [open decision 3](#open-decisions).
+   a `HashDRBG_*` rather than `&mut dyn RNG`. As decided, the generic doors are not also shut at
+   the type level.
 5. **B in reserve.** If the feature turns out to be unmanageable (most likely cause: a third-party
    crate that pulls `bouncycastle-ec` with default features into an approved program), switching
    to a `--cfg` touches the same `#[cfg(...)]` sites and the same build-script line; nothing in A
@@ -234,16 +261,21 @@ workspace root, with its own `Cargo.lock`. The root workspace keeps building eve
 
 Not part of this proposal; listed so the size is visible.
 
-* `crypto/ec`: `[features]`, `#[cfg(feature)]` on the `bp*`, `p256k1*` and `sm2*` module
-  declarations in `hazmat/mod.rs`, and on their tests, benches and doctests.
-* `crypto/ecdsa`: the same for its `*_bp*`, `*_p256k1` modules; features forwarding to `ec`;
-  `bouncycastle-ec = { workspace = true, default-features = false }` plus forwarding.
+As decided (only SM2 is gated):
+
+* `crypto/ec`: a default-on `sm2` feature; `#[cfg(feature = "sm2")]` on the `sm2*` module
+  declarations in `hazmat/mod.rs`, and on SM2's tests, benches and doctests.
+* `crypto/ecdsa`: nothing to gate. It takes `bouncycastle-ec` with `default-features = false`,
+  so that an approved build which pulls in `ecdsa` does not turn `sm2` back on.
 * `crypto/sm2`: `bouncycastle-ec` with `features = ["sm2"]`.
-* Each boundary crate's `build.rs`: the `cargo:features=` line.
-* `crypto/fips`: `approved-only` feature; the check and the record in the combining script
+* `crypto/ec`'s `build.rs` (and every boundary crate's, for uniformity): the `cargo:features=`
+  line.
+* `crypto/fips`: the `approved-only` feature; the check and the record in the combining script
   (sub-issue 2); the facade types.
-* `cli`, umbrella `bouncycastle`, `factory`, `mem_usage_benches`: no change needed, they take
-  default features. `KDFFactory`'s `HKDF-SM3` is outside the module and stays.
+* `cli`, umbrella `bouncycastle`, `factory`, `mem_usage_benches`: no change needed, because they
+  take default features. `KDFFactory`'s `HKDF-SM3` is outside the module and stays.
+* Sub-task 7 (`eccdh`, `concatkdf`, `x963kdf`): the same treatment. Gate SM2 if `eccdh` gains
+  it, and offer only SHA-1/SHA-2/SHA-3 KDF hashes through the facade.
 
 ## Proving the "same table" acceptance criterion
 
@@ -258,13 +290,16 @@ sources … embed the same table". The argument, and the test that backs it:
   script may generate into `src/`**, and the per-crate hasher should reject a file that changes
   between two reads in one run.
 * **By test** (sub-task 5's end-to-end test, or sub-issue 2's): build `crypto/fips` twice, once
-  with default features plus a dependent that turns `bouncycastle-ec/secp256k1` on, once with
+  with default features plus a dependent that turns `bouncycastle-ec/sm2` on, once with
   `--features approved-only`; print the table and module HMAC from each (`fips-info`, or the
   library call) and assert they are equal, and assert that the two toolchain records differ in
   exactly the feature lines. A third build with `approved-only` *and* the dependent that turns a
   non-approved feature on must fail to compile with the check's message.
 
 ## Open decisions
+
+All four were decided on 2026-11-12; see [Decisions](#decisions-2026-11-12). Kept as they were
+asked:
 
 1. **Mechanism.** A + C as recommended, or B (reverses decision 7), or C alone (accepts that
    non-approved code is compiled).
@@ -290,8 +325,13 @@ sources … embed the same table". The argument, and the test that backs it:
   §3.1.2 Table 2; §3.2.1.3-5; Appendix H.1, H.2; no match for "SM2"),
   `NIST.FIPS.186-5.pdf` (§6, §6.1, §6.3.2, §6.4; Appendix A.3.3), `NIST.SP.800-56Cr2.pdf`
   (§5.1, §5.2 Table 4), `NIST.SP.800-108r1-upd1.pdf` (§4 for the iteration modes). Not
-  consulted: the FIPS 140-3 IG and ACVP's coverage of Brainpool and secp256k1, so nothing above
-  says whether a lab accepts the conditional curves.
+  consulted: the FIPS 140-3 IG and ACVP's coverage of Brainpool and secp256k1; the decision to
+  approve them rests on BC-FJA 3.0.X's precedent.
+* **BC-FJA**, local checkouts: `bc-fips-3.0.X-java` `main` at `90ad7196`
+  (`core/.../crypto/fips/FipsEC.java`, `DomainParameterID`, `approvedKeySet`,
+  `validateDomainParameters`, `validateCurveSize`; `FipsKDF.AgreementKDFPRF`;
+  `core-gprov/.../crypto/general/SM2*.java`, `SM3Digest.java`), and `bc-fips-java` `2.0.X` at
+  `e56d3412` (`FipsEC.DomainParameterID`: NIST curves only).
 * **Code**, at `d54a9687`: `crypto/ec/src/hazmat/mod.rs` (module list), `crypto/ecdsa/src/lib.rs`
   (Status section, module list), `ecdsa_p256.rs` and `keys_p256.rs` (`&mut dyn RNG`),
   `rfc6979_p256k1.rs` (HMAC keyed per curve hash), `crypto/hkdf/src/lib.rs`,
