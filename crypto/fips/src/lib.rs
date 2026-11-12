@@ -251,6 +251,8 @@ use bouncycastle_aes as aes;
 use bouncycastle_sha2 as sha2;
 
 #[cfg(feature = "sha2")]
+pub mod binary_hmac;
+#[cfg(feature = "sha2")]
 mod hmac_self_test;
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the

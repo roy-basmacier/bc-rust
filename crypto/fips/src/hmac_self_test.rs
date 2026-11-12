@@ -10,7 +10,9 @@
 //! precondition of the integrity test. HMAC-SHA-512 needs SHA-512, whose own gate refuses until the
 //! SHA-512 CAST has passed, so this one runs after it.
 
-use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm};
+use bouncycastle_core::fips::{
+    SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm,
+};
 use bouncycastle_core::key_material::{KeyMaterial, KeyType};
 use bouncycastle_core::symmetric_key::{FromAnyKeyMaterial, MacGenerationKey};
 use bouncycastle_core::traits::MACGenerator;
