@@ -1,0 +1,15 @@
+# A member of the `crypto/fips` workspace, not of the root one: it depends on bouncycastle-fips,
+# which turns on the algorithm crates' `fips` features (see "Feature unification" in
+# crypto/fips/src/lib.rs). Build and test it with
+# `cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml`.
+[package]
+name = "bc-fips-install"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+description = "Post-link tool that writes the FIPS software integrity value (binary HMAC) into an ELF program"
+
+[dependencies]
+# `sha2` only: the tool needs HMAC-SHA-512 and its self-test. Never `integrity`, which would make
+# the tool's own power-on wait for a binary HMAC nobody wrote into it.
+bouncycastle-fips = { path = "..", default-features = false, features = ["sha2"] }

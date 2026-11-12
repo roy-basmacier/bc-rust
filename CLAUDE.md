@@ -76,6 +76,21 @@ behind each crate's `fips` feature; their unit tests (which inject a failing KAT
 `cargo test -p bouncycastle-aes --features fips --lib` (likewise `-p bouncycastle-sha2`). Only
 `--lib`: with `fips` on, the crate's integration tests and doctests find no self-test run and fail.
 
+The FIPS software integrity test (`bouncycastle-fips`'s `integrity` feature) fails power-on until
+`bc-fips-install` has written the program's binary HMAC into it. The tool is a member of the
+`crypto/fips` workspace, not the root one, for the same feature-unification reason:
+
+```
+cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
+strip target/release/<program>                               # optional; strip goes first
+crypto/fips/target/release/bc-fips-install target/release/<program>    # then sign, if signing
+cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs a test program
+```
+
+Order matters: run it after the last `strip` (strip rewrites the ELF header, which is hashed) and
+before any code signing; run it again after anything that changes the file. It edits the file in
+place, prints the slot offset and value, and exits 1 on a file with no slot or two.
+
 Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
 the Rust build script):
 
@@ -407,7 +422,7 @@ external vector suites — is specified in QUALITY_AND_STYLE.md and CONTRIBUTING
   - **Add `--test-workspace true` when a crate's mutants are killed by another crate's tests.** The `core` traits are the case that matters: their default method bodies are exercised from `sha3` and `factory`, so a `-p bouncycastle-core` run alone reports them all as missed.
   - **Symlink the test data into `/tmp`.** `cargo mutants` copies the tree to `/tmp/cargo-mutants-<dir>-XXXX.tmp/`, so the `../../../bc-test-data/...` paths the vector suites use resolve to `/tmp/bc-test-data`. Without `ln -s <path-to>/bc-test-data /tmp/bc-test-data` those tests print their "not found" warning, pass vacuously, and every mutant they would have killed is reported as missed. Use `--jobs 3` and an explicit `--timeout`; note that a mutant which makes a squeeze return no bytes hangs a fill loop for real, so some timeouts are kills rather than false alarms.
   - **Builds use the `mutants` cargo profile** (`profile = "mutants"` in the config, defined in the root `Cargo.toml`): release optimisation without LTO, with incremental codegen. Measured on `bouncycastle-mldsa-lowmemory`, a mutant rebuilds in under a second and the suite runs in about 4 s, against 160 s per run unoptimised and an 80 s thin-LTO rebuild per mutant under `release`. Do not pass `--profile dev` or `--profile release` to "speed things up"; both are slower here.
-  - **`bouncycastle-fips` needs `--in-place`.** It is outside the workspace with `../` path dependencies, which the copy in `/tmp` cannot resolve (`failed to read /tmp/cipher/Cargo.toml`), so run `cargo mutants --in-place` from `crypto/fips` -- on a scratch clone, since the mutants are written into the source tree and only undone at the end of the run. Its manifest carries its own copy of the `mutants` profile, since profiles are read from the workspace root and the crate is its own.
+  - **`bouncycastle-fips` needs `--in-place`.** It is outside the workspace with `../` path dependencies, which the copy in `/tmp` cannot resolve (`failed to read /tmp/cipher/Cargo.toml`), so run `cargo mutants --in-place` from `crypto/fips` -- on a scratch clone, since the mutants are written into the source tree and only undone at the end of the run. Its manifest carries its own copy of the `mutants` profile, since profiles are read from the workspace root and the crate is its own. To have `bc-fips-install`'s end-to-end tests kill `binary_hmac.rs` mutants too, add `-p bc-fips-install --test-workspace true` (each mutant rebuilds the release test program; 128 mutants over `binary_hmac.rs` and the tool took 10 minutes, the one survivor the `|`/`^` equivalence in `field`).
 - Integration tests in `tests/` are preferred over in-file `#[cfg(test)] mod tests` blocks — see "Unit tests vs integration tests" in QUALITY_AND_STYLE.md for the reasoning and the exceptions. A unit test is justified for high-risk code that has known-answer values and cannot be reached through the public API; when you write one, all of its helpers go inside that `mod tests`.
 - A property that can be asserted at compile time (`const _: () = assert!(...)`) stays a compile-time assertion even when a test also covers it: `cargo mutants` cannot see a const assertion fail, so pair the two rather than trading the guarantee for the coverage.
 - For traits in `core`, the canonical tests live in `core-test-framework` and are invoked from each implementor's integration tests — don't duplicate them per-implementation. The same goes for a block cipher's key, mode-wiring and Wycheproof suites, which live in `cipher-test-framework`, for the CLI block cipher command tests' harness and shared checks in `cli/tests/common/mod.rs`, and for the stack-usage harness in `mem_usage_benches/src/block_cipher_mem_usage.rs`.

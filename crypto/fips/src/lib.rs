@@ -5,7 +5,7 @@
 //! until the self-tests pass, and the error state a failure enters. It is not a FIPS 140-3
 //! validated cryptographic module, and using it does not make an application one: a validation
 //! also needs, at least, a software integrity test that is on in every build (here it is the
-//! `integrity` feature, and its post-link tool is still to come), an approved service
+//! `integrity` feature, with its post-link tool `bc-fips-install`), an approved service
 //! indicator, a defined cryptographic boundary, self-tests for every other approved algorithm
 //! offered (the DRBG, SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md`
 //! beside this crate lists what is still missing.
@@ -44,7 +44,8 @@
 //!
 //! With the `integrity` feature, power-on also runs the pre-operational software integrity test
 //! (ISO/IEC 19790:2012 7.10.2.2): an HMAC-SHA-512 over the program's own read-only loaded
-//! segments, compared with a value a post-link tool writes into a slot in the finished binary.
+//! segments, compared with a value the post-link tool `bc-fips-install` (beside this crate)
+//! writes into a slot in the finished binary.
 //! It covers the whole program, not only this module's code, because cross-crate inlining and
 //! LTO put module code inside the application's functions. [`binary_hmac`] has the format, which
 //! is a contract with that tool. **Until the tool has run on a binary, its slot is empty and
