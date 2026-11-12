@@ -416,3 +416,26 @@ fn manifests_it_cannot_read_are_refused() {
     .unwrap();
     assert_eq!(m.normal_deps, ["y"]);
 }
+
+#[test]
+fn strings_hide_syntax() {
+    // A `#` in a string is no comment, also after an escaped quote.
+    assert_eq!(parse_manifest("[package]\nname = \"x#y\"\n").unwrap().name, "x#y");
+    assert_eq!(parse_manifest("[package]\nname = 'x#y'\n").unwrap().name, "x#y");
+    assert_eq!(parse_manifest("[package]\nname = \"a\\\"#b\"\n").unwrap().name, "a\\\"#b");
+    // Nor is a `package = ` key in a string, whatever surrounds it.
+    for value in [r#"["x, package = 1"]"#, r#"["a\", package = 1"]"#, r#"['x, package = 1']"#] {
+        let text = format!("[package]\nname = \"x\"\n[dependencies]\ny = {{ features = {value} }}\n");
+        assert_eq!(parse_manifest(&text).unwrap().normal_deps, ["y"], "{value}");
+    }
+}
+
+#[test]
+fn a_multi_line_value_is_read_to_its_end() {
+    // The array closes on a line that also has an `=`, which must not be read as a new key.
+    let m = parse_manifest(
+        "[package]\nname = \"x\"\n[dependencies]\ny = { features = [\n\"a\",\n], path = \"p\" }\nz = \"1\"\n",
+    )
+    .unwrap();
+    assert_eq!(m.normal_deps, ["y", "z"]);
+}
