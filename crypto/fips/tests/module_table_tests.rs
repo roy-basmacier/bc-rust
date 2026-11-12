@@ -12,7 +12,8 @@ use std::process::Command;
 use bouncycastle_fips::{MODULE_HMAC_KEY, ModuleTableEntry, module_table, toolchain};
 #[cfg(not(feature = "integrity"))]
 use bouncycastle_fips::{
-    SelfTestStatus, SelfTestedAlgorithm, module_hmac, power_on_self_tests, self_test_status,
+    SelfTestStatus, SelfTestedAlgorithm, module_hmac, module_info, power_on_self_tests,
+    self_test_status,
 };
 use bouncycastle_fips_build::{
     BOUNDARY, BoundaryCrate, build_table, dep_var_links, hex, read_crate,
@@ -66,6 +67,36 @@ fn the_table_pins_the_sources_of_this_checkout() {
 fn the_module_hmac_is_derived_from_the_table() {
     power_on_self_tests().expect("self-tests pass");
     assert_eq!(module_hmac(), Ok(bouncycastle_fips_build::module_hmac(&embedded_table())));
+}
+
+/// `ModuleInfo` holds the three public values and prints them in the format of
+/// `bc-rust fips-info`: the independent script's lines, then the toolchain record.
+#[cfg(not(feature = "integrity"))]
+#[test]
+fn module_info_prints_the_table_the_module_hmac_and_the_toolchain() {
+    power_on_self_tests().expect("self-tests pass");
+    let info = module_info().expect("HMAC-SHA-512 has passed");
+    assert_eq!(info.table, module_table());
+    assert_eq!(Ok(info.module_hmac), module_hmac());
+    assert_eq!(info.toolchain, toolchain());
+
+    let mut expected = String::new();
+    for e in module_table() {
+        expected.push_str(&format!("{} {}\n", e.package, hex(&e.hmac)));
+    }
+    expected.push_str(&format!("module-hmac {}\n", hex(&info.module_hmac)));
+    let t = toolchain();
+    expected.push_str(&format!(
+        "toolchain.rustc {}\ntoolchain.host {}\ntoolchain.target {}\ntoolchain.opt-level {}\n\
+         toolchain.profile {}\ntoolchain.features{}\n",
+        t.rustc,
+        t.host,
+        t.target,
+        t.opt_level,
+        t.profile,
+        t.features.iter().map(|f| format!(" {f}")).collect::<String>()
+    ));
+    assert_eq!(info.to_string(), expected);
 }
 
 #[test]

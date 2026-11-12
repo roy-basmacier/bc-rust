@@ -82,6 +82,72 @@ pub fn module_hmac() -> Result<[u8; MODULE_HMAC_LEN], SelfTestError> {
     Ok(module_hmac_of(&TABLE))
 }
 
+/// What an operator compares with the Security Policy: the module table, the module HMAC and the
+/// toolchain record, from [`module_info`].
+///
+/// Its [`Display`](core::fmt::Display) form is what `bc-rust fips-info` prints, one item per
+/// line, hex in lowercase:
+///
+/// ```text
+/// <package name> <128 hex digits>        one line per table entry, in table order
+/// module-hmac <128 hex digits>
+/// toolchain.rustc <rustc>
+/// toolchain.host <host>
+/// toolchain.target <target>
+/// toolchain.opt-level <opt-level>
+/// toolchain.profile <profile>
+/// toolchain.features[ <feature>]...
+/// ```
+///
+/// The lines up to and including `module-hmac` are exactly what `dev_scripts/fips_module_hmac.py`
+/// prints over the same sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModuleInfo {
+    /// [`module_table`].
+    pub table: &'static [ModuleTableEntry],
+    /// [`module_hmac`], recomputed from [`ModuleInfo::table`].
+    pub module_hmac: [u8; MODULE_HMAC_LEN],
+    /// [`toolchain`].
+    pub toolchain: &'static ToolchainRecord,
+}
+
+/// The module table, the module HMAC and the toolchain record together, to print.
+///
+/// # Errors
+/// As [`module_hmac`].
+pub fn module_info() -> Result<ModuleInfo, SelfTestError> {
+    Ok(ModuleInfo { table: module_table(), module_hmac: module_hmac()?, toolchain: toolchain() })
+}
+
+impl core::fmt::Display for ModuleInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        /// `bytes` as lowercase hex, then the end of the line.
+        fn hex_line(f: &mut core::fmt::Formatter<'_>, bytes: &[u8]) -> core::fmt::Result {
+            for b in bytes {
+                write!(f, "{b:02x}")?;
+            }
+            writeln!(f)
+        }
+        for entry in self.table {
+            write!(f, "{} ", entry.package)?;
+            hex_line(f, &entry.hmac)?;
+        }
+        f.write_str("module-hmac ")?;
+        hex_line(f, &self.module_hmac)?;
+        let t = self.toolchain;
+        writeln!(f, "toolchain.rustc {}", t.rustc)?;
+        writeln!(f, "toolchain.host {}", t.host)?;
+        writeln!(f, "toolchain.target {}", t.target)?;
+        writeln!(f, "toolchain.opt-level {}", t.opt_level)?;
+        writeln!(f, "toolchain.profile {}", t.profile)?;
+        f.write_str("toolchain.features")?;
+        for feature in t.features {
+            write!(f, " {feature}")?;
+        }
+        writeln!(f)
+    }
+}
+
 /// The module HMAC of `table`, in the order given.
 fn module_hmac_of(table: &[ModuleTableEntry]) -> [u8; MODULE_HMAC_LEN] {
     // 41 bytes fit a 64-byte KeyMaterial, and a MACKey-tagged key is accepted when the strength
