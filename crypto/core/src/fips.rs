@@ -199,6 +199,9 @@ pub enum SelfTestedAlgorithm {
     /// Not an algorithm: the pre-operational software integrity test (ISO/IEC 19790:2012
     /// 7.10.2.2), an HMAC-SHA-512 over the program's read-only loaded segments.
     SoftwareIntegrity,
+    /// Not an algorithm: the check that the module HMAC recomputed from the source table embedded
+    /// in the program equals the published constant of a validated version of the module.
+    ModuleIntegrity,
 }
 
 impl SelfTestedAlgorithm {
@@ -207,9 +210,16 @@ impl SelfTestedAlgorithm {
     /// The hashes come first so that a known-answer test compared through a hash (FIPS 140-3 IG
     /// 10.3.A, GeneralNote7) only ever uses a hash that has already passed. HMAC-SHA-512 follows
     /// SHA-512, and the software integrity test follows HMAC-SHA-512, the algorithm it uses
-    /// (ISO/IEC 19790:2012 7.10.1 [10.20], as FIPS 140-3 IG 10.2.A quotes it).
-    pub const ALL: [Self; 5] =
-        [Self::SHA256, Self::SHA512, Self::HMAC_SHA512, Self::SoftwareIntegrity, Self::AES];
+    /// (ISO/IEC 19790:2012 7.10.1 [10.20], as FIPS 140-3 IG 10.2.A quotes it). The module
+    /// integrity check, also an HMAC-SHA-512, follows the software integrity test.
+    pub const ALL: [Self; 6] = [
+        Self::SHA256,
+        Self::SHA512,
+        Self::HMAC_SHA512,
+        Self::SoftwareIntegrity,
+        Self::ModuleIntegrity,
+        Self::AES,
+    ];
 
     /// The algorithm's position in [`Self::ALL`].
     const fn index(self) -> u8 {
@@ -218,7 +228,8 @@ impl SelfTestedAlgorithm {
             Self::SHA512 => 1,
             Self::HMAC_SHA512 => 2,
             Self::SoftwareIntegrity => 3,
-            Self::AES => 4,
+            Self::ModuleIntegrity => 4,
+            Self::AES => 5,
         }
     }
 
@@ -230,6 +241,7 @@ impl SelfTestedAlgorithm {
             Self::SHA512 => "SHA-512",
             Self::HMAC_SHA512 => "HMAC-SHA-512",
             Self::SoftwareIntegrity => "software integrity",
+            Self::ModuleIntegrity => "module integrity",
         }
     }
 }
