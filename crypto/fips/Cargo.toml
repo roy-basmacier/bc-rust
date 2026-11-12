@@ -13,13 +13,18 @@ default = ["aes", "sha2"]
 # Self-test AES (all modes and key sizes) and gate its services on the result.
 aes = ["dep:bouncycastle-aes"]
 # Self-test SHA-256 and SHA-512 (covering SHA-224, SHA-384, SHA-512/224 and SHA-512/256) and gate
-# their services on the result.
-sha2 = ["dep:bouncycastle-sha2"]
+# their services on the result; then self-test HMAC-SHA-512.
+sha2 = ["dep:bouncycastle-sha2", "dep:bouncycastle-hmac"]
+# Run the software integrity test (the binary HMAC) at power-on, after HMAC-SHA-512's self-test.
+# ELF targets only. Every program built with it fails power-on until the post-link tool has
+# written its binary HMAC; see `binary_hmac`.
+integrity = ["sha2"]
 
 [dependencies]
 bouncycastle-core = { path = "../core", features = ["fips"] }
 bouncycastle-aes = { path = "../aes", optional = true, features = ["fips"] }
 bouncycastle-sha2 = { path = "../sha2", optional = true, features = ["fips"] }
+bouncycastle-hmac = { path = "../hmac", optional = true }
 
 [dev-dependencies]
 bouncycastle-cipher = { path = "../cipher" }

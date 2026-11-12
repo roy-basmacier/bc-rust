@@ -6,7 +6,14 @@ use bouncycastle_fips::{SELF_TESTED, SelfTestedAlgorithm};
 fn self_tested_follows_the_features_hashes_first() {
     let mut expected = Vec::new();
     if cfg!(feature = "sha2") {
-        expected.extend([SelfTestedAlgorithm::SHA256, SelfTestedAlgorithm::SHA512]);
+        expected.extend([
+            SelfTestedAlgorithm::SHA256,
+            SelfTestedAlgorithm::SHA512,
+            SelfTestedAlgorithm::HMAC_SHA512,
+        ]);
+    }
+    if cfg!(feature = "integrity") {
+        expected.push(SelfTestedAlgorithm::SoftwareIntegrity);
     }
     if cfg!(feature = "aes") {
         expected.push(SelfTestedAlgorithm::AES);

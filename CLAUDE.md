@@ -76,6 +76,18 @@ behind each crate's `fips` feature; their unit tests (which inject a failing KAT
 `cargo test -p bouncycastle-aes --features fips --lib` (likewise `-p bouncycastle-sha2`). Only
 `--lib`: with `fips` on, the crate's integration tests and doctests find no self-test run and fail.
 
+Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
+the Rust build script):
+
+```
+dev_scripts/fips_module_hmac.py crypto/aes crypto/core ...   # one directory per boundary crate
+dev_scripts/fips_module_hmac.py --list boundary.txt          # or one directory per line in a file
+```
+
+It prints `<package name> <hex>` per table entry in bytewise package-name order, then
+`module-hmac <hex>`; input order is irrelevant and CRLF checkouts give the same output as LF ones. The
+definitions are in its docstring. Compare its output with the table the build embeds.
+
 Quality / mutation testing:
 
 ```

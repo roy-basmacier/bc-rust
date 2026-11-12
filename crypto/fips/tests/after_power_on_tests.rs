@@ -1,6 +1,6 @@
 //! After the power-on self-tests have passed: every service works, a second power-on call is a
 //! no-op, and an on-demand re-run passes and keeps the services usable.
-#![cfg(any(feature = "aes", feature = "sha2"))]
+#![cfg(all(any(feature = "aes", feature = "sha2"), not(feature = "integrity")))]
 
 mod common;
 

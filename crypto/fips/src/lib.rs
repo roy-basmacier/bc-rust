@@ -4,10 +4,11 @@
 //! self-tests FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms unusable
 //! until the self-tests pass, and the error state a failure enters. It is not a FIPS 140-3
 //! validated cryptographic module, and using it does not make an application one: a validation
-//! also needs, at least, a software integrity test, an approved service indicator, a defined
-//! cryptographic boundary, self-tests for every other approved algorithm offered (HMAC, the DRBG,
-//! SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md` beside this crate lists
-//! what is still missing.
+//! also needs, at least, a software integrity test that is on in every build (here it is the
+//! `integrity` feature, and its post-link tool is still to come), an approved service
+//! indicator, a defined cryptographic boundary, self-tests for every other approved algorithm
+//! offered (the DRBG, SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md`
+//! beside this crate lists what is still missing.
 //!
 //! Each algorithm crate carries its own self-test and status behind its `fips` cargo feature
 //! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`); this crate turns those features
@@ -31,7 +32,24 @@
 //! | Feature | Self-tested algorithm | Services gated |
 //! |---|---|---|
 //! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
-//! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256 |
+//! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
+//! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
+//!
+//! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
+//! test, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
+//! the integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1 [10.20]).
+//!
+//! # The software integrity test
+//!
+//! With the `integrity` feature, power-on also runs the pre-operational software integrity test
+//! (ISO/IEC 19790:2012 7.10.2.2): an HMAC-SHA-512 over the program's own read-only loaded
+//! segments, compared with a value a post-link tool writes into a slot in the finished binary.
+//! It covers the whole program, not only this module's code, because cross-crate inlining and
+//! LTO put module code inside the application's functions. [`binary_hmac`] has the format, which
+//! is a contract with that tool. **Until the tool has run on a binary, its slot is empty and
+//! power-on fails**, so the feature is off by default; the tests of this crate run with it as
+//! `cargo test --manifest-path crypto/fips/Cargo.toml --features integrity --tests` (the doc
+//! examples power on, so they fail under it).
 //!
 //! # Usage Examples
 //!
@@ -141,6 +159,10 @@
 //! SHA-512 CAST is not performed". A SHA-1 CAST is required if SHA-1 is implemented; bc-rust
 //! has none.
 //!
+//! What, for HMAC (IG 10.3.A Resolution 4): "a CAST for HMAC is required and shall be performed
+//! with the HMAC function using at least one of the implemented underlying SHA-1, SHA-2, or SHA-3
+//! algorithms". HMAC-SHA-512, since it is the algorithm of the software integrity test.
+//!
 //! On failure:
 //! * A known-answer test whose output differs from the known answer "shall fail" (§7.10.3.2
 //!   [10.28]). An answer may be compared through a hash only if that hash has itself been
@@ -164,6 +186,7 @@
 //! |---|---|---|---|---|
 //! | SHA-256 | SHA-256, SHA-224 | CAVP SHAVS byte-oriented (CAVS 11.0), `bc-test-data/crypto/sha2/byte-oriented/SHA256ShortMsg.rsp`, `[L = 32]`, `Len = 24` | Msg `b4190e` | `dff2e73091f6c05e528896c4c831b9448653dc2ff043528f6769437bc7b975c2` |
 //! | SHA-512 | SHA-512, SHA-384, SHA-512/224, SHA-512/256 | same suite, `SHA512ShortMsg.rsp`, `[L = 64]`, `Len = 24` | Msg `0a55db` | `7952585e5330cb247d72bae696fc8a6b0f7d0804577e347d99bc1b11e52f384985a428449382306a89261ae143c2f3fb613804ab20b42dc097e5bf4a96ef919b` |
+//! | HMAC-SHA-512 | HMAC (Resolution 4) | RFC 4231 Section 4.2, "Test Case 1" | Key `0b` x 20, Data `4869205468657265` ("Hi There") | `87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854` |
 //! | AES-GCM-128 encrypt | 1.a, 1.d(i), forward cipher (1.c) | CAVP `gcmtestvectors.zip` (CAVS 14.0), `bc-test-data/crypto/aes_tdes_vectors/GCM/cavp/gcmEncryptExtIV128.rsp`, `[Keylen = 128] [IVlen = 96] [PTlen = 128] [AADlen = 128] [Taglen = 128]`, `Count = 0` | Key `c939cc13397c1d37de6ae0e1cb7c423c`, IV `b3d8cc017cbb89b39e0f67e2`, PT `c3b3c41f113a31b73d9a5cd432103069`, AAD `24825602bd12a984e0092d3e448eda5f` | CT `93fe7d9e9bfd10348a5606e5cafa7354`, Tag `0032a1dc85f1c9786925a2e71d8272dd` |
 //! | AES-GCM-128 decrypt | 1.b | the same vector, decrypting CT and Tag (1.b: "the data could be the encrypted value computed during the encryption test") | Key, IV, AAD, CT, Tag as above | PT as above, tag accepted |
 //! | AES-CBC-128 decrypt | inverse cipher (1.c) | NIST SP 800-38A (2001), Appendix F.2.2 "CBC-AES128.Decrypt" | Key `2b7e151628aed2a6abf7158809cf4f3c`, IV `000102030405060708090a0b0c0d0e0f`, CT `7649abac8119b246cee98e9b12e9197d` `5086cb9b507219ee95db113a917678b2` `73bed6b8e3c1743b7116e69e22229516` `3ff1caa1681fac09120eca307586e1a7` | PT `6bc1bee22e409f96e93d7e117393172a` `ae2d8a571e03ac9c9eb76fac45af8e51` `30c81c46a35ce411e5fbc1191a0a52ef` `f69f2445df4f9b17ad2b417be66c3710` |
@@ -209,9 +232,10 @@
 //! # 🚨 Security Considerations 🚨
 //!
 //! * **Not a validated module.** See the top of this page for what a validation needs beyond
-//!   these self-tests. HMAC-SHA-2, HKDF and the Hash_DRBG become usable as soon as SHA-2 passes,
-//!   but have no self-test of their own here (FIPS 140-3 IG 10.3.A Resolutions 4 and 6 require
-//!   them): they cannot be claimed as approved services of a build using this crate.
+//!   these self-tests. HKDF and the Hash_DRBG become usable as soon as SHA-2 passes, but have no
+//!   self-test of their own here (FIPS 140-3 IG 10.3.A Resolution 6 requires them): they cannot
+//!   be claimed as approved services of a build using this crate. HMAC has its CAST, but HMAC
+//!   services are gated only on SHA-2, not on it.
 //! * **The gates are build-wide.** Cargo turns a feature on for the whole build if any one
 //!   dependency asks for it, so once anything in a program depends on this crate, every AES key
 //!   and SHA-2 hash in that program, in every library, is refused until [`power_on_self_tests`]
@@ -228,11 +252,17 @@
 //! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
 //!   that any crate can report a failure (a pairwise consistency test, later). Nothing can clear
 //!   it or record a pass, but any code in the process can stop every gated algorithm with it.
+//! * **The integrity test detects corruption, not an attacker.** Its key is public and its value
+//!   sits in the binary it checks, so whoever can rewrite a segment can rewrite the value. It
+//!   does not cover writable segments. Without the `integrity` feature there is none.
+//! * **`unsafe` code.** The integrity test reads the program's own headers and segments at the
+//!   addresses the loader mapped them to, and the slot with a volatile read; that is the crate's
+//!   only `unsafe` code, and only with the `integrity` feature.
 //! * **The self-tests detect a faulty implementation**, not misuse: they say nothing about how
 //!   keys, nonces or IVs are chosen.
 
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![forbid(missing_docs)]
 
 pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
@@ -244,18 +274,29 @@ use bouncycastle_aes as aes;
 #[cfg(feature = "sha2")]
 use bouncycastle_sha2 as sha2;
 
+#[cfg(feature = "sha2")]
+pub mod binary_hmac;
+#[cfg(feature = "sha2")]
+mod hmac_self_test;
+#[cfg(feature = "integrity")]
+mod integrity;
+
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
-/// enabled cargo features, hashes first.
+/// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test.
 pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::SHA256,
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::SHA512,
+    #[cfg(feature = "sha2")]
+    SelfTestedAlgorithm::HMAC_SHA512,
+    #[cfg(feature = "integrity")]
+    SelfTestedAlgorithm::SoftwareIntegrity,
     #[cfg(feature = "aes")]
     SelfTestedAlgorithm::AES,
 ];
 
-/// One algorithm crate's self-test entry point.
+/// One self-test entry point: an algorithm crate's, or one of this crate's own.
 struct Crate {
     /// The algorithms its one `self_test` covers.
     algorithms: &'static [SelfTestedAlgorithm],
@@ -268,6 +309,15 @@ const CRATES: &[Crate] = &[
     Crate {
         algorithms: &[SelfTestedAlgorithm::SHA256, SelfTestedAlgorithm::SHA512],
         self_test: sha2::self_test,
+    },
+    #[cfg(feature = "sha2")]
+    Crate { algorithms: &[SelfTestedAlgorithm::HMAC_SHA512], self_test: hmac_self_test::self_test },
+    // The integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1
+    // [10.20]); it runs before the remaining self-tests. The module HMAC goes after it.
+    #[cfg(feature = "integrity")]
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::SoftwareIntegrity],
+        self_test: integrity::self_test,
     },
     #[cfg(feature = "aes")]
     Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
@@ -308,6 +358,10 @@ pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
         SelfTestedAlgorithm::SHA256 => sha2::sha256_self_test_status(),
         #[cfg(feature = "sha2")]
         SelfTestedAlgorithm::SHA512 => sha2::sha512_self_test_status(),
+        #[cfg(feature = "sha2")]
+        SelfTestedAlgorithm::HMAC_SHA512 => hmac_self_test::status(),
+        #[cfg(feature = "integrity")]
+        SelfTestedAlgorithm::SoftwareIntegrity => integrity::status(),
         #[cfg(feature = "aes")]
         SelfTestedAlgorithm::AES => aes::self_test_status(),
         _ => SelfTestStatus::NotRun,

@@ -7,7 +7,7 @@
 //! is enter the module error state, through a public function (it can only stop services), so
 //! this file starts there: the error state is entered naming the first self-tested algorithm,
 //! as its own failing self-test enters it.
-#![cfg(any(feature = "aes", feature = "sha2"))]
+#![cfg(all(any(feature = "aes", feature = "sha2"), not(feature = "integrity")))]
 
 mod common;
 
