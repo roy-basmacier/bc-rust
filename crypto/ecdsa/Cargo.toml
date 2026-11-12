@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-ecdsa"
+links = "bouncycastle_ecdsa"
 version.workspace = true
 edition.workspace = true
 

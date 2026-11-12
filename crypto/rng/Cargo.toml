@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-rng"
+links = "bouncycastle_rng"
 version.workspace = true
 edition.workspace = true
 

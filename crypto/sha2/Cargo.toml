@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-sha2"
+links = "bouncycastle_sha2"
 version.workspace = true
 edition.workspace = true
 

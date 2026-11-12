@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-ec"
+links = "bouncycastle_ec"
 version.workspace = true
 edition.workspace = true
 

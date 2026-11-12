@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-cipher"
+links = "bouncycastle_cipher"
 edition.workspace = true
 rust-version.workspace = true
 version.workspace = true

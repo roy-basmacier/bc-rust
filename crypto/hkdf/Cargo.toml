@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-hkdf"
+links = "bouncycastle_hkdf"
 version.workspace = true
 edition.workspace = true
 

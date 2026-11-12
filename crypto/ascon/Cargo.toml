@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-ascon"
+links = "bouncycastle_ascon"
 version.workspace = true
 edition.workspace = true
 

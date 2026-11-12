@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-hmac"
+links = "bouncycastle_hmac"
 version.workspace = true
 edition.workspace = true
 

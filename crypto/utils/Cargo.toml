@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-utils"
+links = "bouncycastle_utils"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

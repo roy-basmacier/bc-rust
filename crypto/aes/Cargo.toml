@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-aes"
+links = "bouncycastle_aes"
 version.workspace = true
 edition.workspace = true
 
