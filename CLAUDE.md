@@ -76,6 +76,21 @@ behind each crate's `fips` feature; their unit tests (which inject a failing KAT
 `cargo test -p bouncycastle-aes --features fips --lib` (likewise `-p bouncycastle-sha2`). Only
 `--lib`: with `fips` on, the crate's integration tests and doctests find no self-test run and fail.
 
+The FIPS software integrity test (`bouncycastle-fips`'s `integrity` feature) fails power-on until
+`bc-fips-install` has written the program's binary HMAC into it. The tool is a member of the
+`crypto/fips` workspace, not the root one, for the same feature-unification reason:
+
+```
+cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
+strip target/release/<program>                               # optional; strip goes first
+crypto/fips/target/release/bc-fips-install target/release/<program>    # then sign, if signing
+cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs a test program
+```
+
+Order matters: run it after the last `strip` (strip rewrites the ELF header, which is hashed) and
+before any code signing; run it again after anything that changes the file. It edits the file in
+place, prints the slot offset and value, and exits 1 on a file with no slot or two.
+
 Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
 the Rust build script):
 

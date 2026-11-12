@@ -35,6 +35,8 @@ name = "crypto_officer"
 required-features = ["aes", "sha2"]
 
 [workspace]
+# The post-link tool. Its test program, `bc-fips-install/tests/consumer`, is a workspace of its own.
+members = ["bc-fips-install"]
 
 # The root manifest's `mutants` profile, which `.cargo/mutants.toml` names: profiles are read
 # from the workspace root, and this crate is its own. Keep the two in step.

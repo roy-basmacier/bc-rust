@@ -1,0 +1,21 @@
+# The test program `tests/install_tests.rs` builds, installs and runs: the smallest program that
+# links bouncycastle-fips with the software integrity test on. Its own workspace, so that the
+# `integrity` feature it turns on is never unified into the tool's build.
+[package]
+name = "bc-fips-install-consumer"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+bouncycastle-fips = { path = "../../..", features = ["integrity"] }
+bouncycastle-core = { path = "../../../../core" }
+bouncycastle-sha2 = { path = "../../../../sha2" }
+
+[workspace]
+
+# The root manifest's release profile, which `bc-rust` is built with.
+[profile.release]
+lto = "thin"
+strip = "debuginfo"
