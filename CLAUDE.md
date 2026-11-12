@@ -88,6 +88,17 @@ It prints `<package name> <hex>` per table entry in bytewise package-name order,
 `module-hmac <hex>`; input order is irrelevant and CRLF checkouts give the same output as LF ones. The
 definitions are in its docstring. Compare its output with the table the build embeds.
 
+The build side is `crypto/fips/build.rs` over the helper crate `bouncycastle-fips-build`
+(`crypto/fips/build-support`, a member of the fips workspace). Its `BOUNDARY` list and the
+boundary dependencies in `crypto/fips/Cargo.toml` must change together; the build fails otherwise.
+The helper must stay a separate crate: a direct build-dependency on `bouncycastle-sha2` would
+get `fips` from the `sha2` feature's `bouncycastle-sha2/fips`, and its SHA-512 would panic in the
+build script. Any edit to a boundary crate changes the module HMAC, so
+`cargo test --manifest-path crypto/fips/Cargo.toml --features fips-validated` fails until
+`crypto/fips/src/expected_module_hmac.rs` gets the value the failing build prints. Test both
+settings of that feature. To run the helper's mutants with the fips tests, use
+`cargo mutants --in-place -p bouncycastle-fips-build --test-workspace true`.
+
 Quality / mutation testing:
 
 ```
