@@ -8,6 +8,12 @@
 //! `fips-validated` feature, a module HMAC other than the published constant in
 //! `src/expected_module_hmac.rs` fails the build.
 //!
+//! Each boundary crate also hands over its enabled cargo features, as
+//! `DEP_BOUNCYCASTLE_<NAME>_FEATURES`; they go into the toolchain record. With the
+//! `approved-only` feature, a non-approved one (`bouncycastle-ec`'s `sm2`) fails the build. Cargo
+//! unifies features across the whole build, so this is how a dependency elsewhere in the program
+//! that turns one on is caught; see crypto/fips/APPROVED_MODE.md.
+//!
 //! The work is done by `bouncycastle-fips-build` (`build-support/`), whose copy of
 //! `bouncycastle-sha2` never has the `fips` feature (see `build-support/Cargo.toml`). Were it on,
 //! SHA-512 would panic here, before any self-test, so a successful build with the `sha2` feature
@@ -22,13 +28,14 @@ use std::process::Command;
 mod expected_module_hmac;
 
 use bouncycastle_fips_build as source_pin;
-use source_pin::{BoundaryCrate, Toolchain};
+use source_pin::{BoundaryCrate, CrateFeatures, Toolchain};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/expected_module_hmac.rs");
 
     let mut crates = Vec::new();
+    let mut crate_features: Vec<CrateFeatures> = Vec::new();
     for (var, dir) in env::vars_os() {
         let Some(var) = var.to_str() else { continue };
         let Some(links) = var.strip_prefix("DEP_").and_then(|v| v.strip_suffix("_SRC_DIR")) else {
@@ -44,6 +51,15 @@ fn main() {
             println!("cargo:rerun-if-changed={}", dir.join(watched).display());
         }
         let (manifest, files) = source_pin::read_crate(&dir).unwrap_or_else(|e| fail(&e));
+        let features_var = format!("DEP_{links}_FEATURES");
+        let features = env::var(&features_var).unwrap_or_else(|_| {
+            fail(&format!(
+                "`{}` set DEP_{links}_SRC_DIR but not {features_var}: its build script must also \
+                 emit `cargo:features=`",
+                manifest.name
+            ))
+        });
+        crate_features.push((manifest.name.clone(), source_pin::parse_features(&features)));
         crates.push(BoundaryCrate { dep_links: links.to_string(), manifest, files });
     }
 
@@ -53,13 +69,20 @@ fn main() {
         .map(|_| &expected_module_hmac::EXPECTED_MODULE_HMAC);
     source_pin::check_expected(&module, expected).unwrap_or_else(|e| fail(&e));
 
-    let generated = source_pin::render(&table, &toolchain());
+    // In table order, which is bytewise by package name.
+    crate_features.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+    if env::var_os("CARGO_FEATURE_APPROVED_ONLY").is_some() {
+        source_pin::check_approved_only(&crate_features).unwrap_or_else(|e| fail(&e));
+    }
+
+    let generated = source_pin::render(&table, &toolchain(crate_features));
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
     fs::write(out.join("module_table.rs"), generated).expect("OUT_DIR is writable");
 }
 
-/// The toolchain record: `rustc -vV`'s version and host, and Cargo's description of this build.
-fn toolchain() -> Toolchain {
+/// The toolchain record: `rustc -vV`'s version and host, Cargo's description of this build, and
+/// the boundary crates' features.
+fn toolchain(crate_features: Vec<CrateFeatures>) -> Toolchain {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let output = Command::new(&rustc)
         .arg("-vV")
@@ -84,6 +107,7 @@ fn toolchain() -> Toolchain {
         opt_level: cargo_env("OPT_LEVEL"),
         profile: cargo_env("PROFILE"),
         features,
+        crate_features,
     }
 }
 

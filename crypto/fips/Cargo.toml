@@ -22,6 +22,10 @@ integrity = ["sha2"]
 # A release build of a validated version: the module HMAC must equal the constant in
 # src/expected_module_hmac.rs, or the build fails, and power-on checks it again.
 fips-validated = ["sha2"]
+# A FIPS-approved build: the build fails if any crate inside the module boundary has a cargo
+# feature on that adds a non-approved service (today `bouncycastle-ec/sm2`), and the module offers
+# its approved services as concrete types in `approved`. See APPROVED_MODE.md.
+approved-only = []
 
 # The module boundary: every crate of the module, which is the normal-dependency closure of aes,
 # ascon, hmac, hkdf, sha3, ec and ecdsa. Each one is a direct dependency, whether or not this

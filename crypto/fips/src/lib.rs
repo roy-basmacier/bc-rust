@@ -35,6 +35,7 @@
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
 //! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
+//! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates |
 //!
 //! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
 //! test, the module integrity check, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
@@ -71,6 +72,13 @@
 //!
 //! The build fails, whatever the features, if a module crate gains a dependency outside the
 //! module, or if the module's crates are not exactly the dependencies this crate lists.
+//!
+//! The toolchain record also lists each module crate's enabled cargo features as Cargo unified
+//! them ([`ToolchainRecord::crate_features`]). The features select only what is compiled and
+//! change no source file, so they never change the table. With the `approved-only` feature, the
+//! build fails if a module crate has a feature on that adds a non-approved service, naming the
+//! crate and the feature: today that is `bouncycastle-ec`'s `sm2`, which any dependency on
+//! `bouncycastle-ec` with default features, or on `bouncycastle-sm2`, turns on.
 //!
 //! # Usage Examples
 //!
@@ -328,8 +336,8 @@ mod integrity;
 mod module_table;
 
 pub use module_table::{
-    MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleTableEntry, ToolchainRecord, module_hmac, module_table,
-    toolchain,
+    CrateFeatures, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleTableEntry, ToolchainRecord,
+    module_hmac, module_table, toolchain,
 };
 
 // The boundary crates this crate does not call. They are dependencies so that build.rs receives

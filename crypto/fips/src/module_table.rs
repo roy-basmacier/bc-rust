@@ -47,6 +47,26 @@ pub struct ToolchainRecord {
     pub profile: &'static str,
     /// The enabled cargo features of `bouncycastle-fips`, sorted.
     pub features: &'static [&'static str],
+    /// The enabled cargo features of each crate inside the module boundary, in table order.
+    pub crate_features: &'static [CrateFeatures],
+}
+
+impl ToolchainRecord {
+    /// Whether this is a FIPS-approved build: one with the `approved-only` feature, which builds
+    /// only if no crate inside the module boundary has a non-approved feature on.
+    pub fn approved_only(&self) -> bool {
+        self.features.contains(&"approved-only")
+    }
+}
+
+/// The enabled cargo features of one crate inside the module boundary, as Cargo unified them for
+/// the build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrateFeatures {
+    /// The crate's full package name, e.g. `bouncycastle-ec`.
+    pub package: &'static str,
+    /// Its enabled cargo features, sorted.
+    pub features: &'static [&'static str],
 }
 
 // TABLE and TOOLCHAIN, written by build.rs.

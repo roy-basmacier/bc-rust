@@ -114,6 +114,7 @@ fn the_toolchain_record() {
     let mut expected = Vec::new();
     for (feature, on) in [
         ("aes", cfg!(feature = "aes")),
+        ("approved-only", cfg!(feature = "approved-only")),
         ("default", cfg!(feature = "default")),
         ("fips-validated", cfg!(feature = "fips-validated")),
         ("integrity", cfg!(feature = "integrity")),
@@ -124,6 +125,25 @@ fn the_toolchain_record() {
         }
     }
     assert_eq!(t.features, expected.as_slice());
+    assert_eq!(t.approved_only(), cfg!(feature = "approved-only"));
+}
+
+/// The boundary crates' features: one entry per table row, in the same order, each sorted; and
+/// SM2 off, since nothing in this crate's own build asks for it.
+#[test]
+fn the_crate_features_in_the_record() {
+    let t = toolchain();
+    let packages: Vec<&str> = t.crate_features.iter().map(|c| c.package).collect();
+    let table: Vec<&str> = module_table().iter().map(|e| e.package).collect();
+    assert_eq!(packages, table);
+    for c in t.crate_features {
+        assert!(c.features.is_sorted(), "{c:?}");
+    }
+    let ec = t.crate_features.iter().find(|c| c.package == "bouncycastle-ec").unwrap();
+    assert_eq!(ec.features, &[] as &[&str]);
+    // The algorithm crates' `fips` features that this crate's own features turn on.
+    let sha2 = t.crate_features.iter().find(|c| c.package == "bouncycastle-sha2").unwrap();
+    assert_eq!(sha2.features.contains(&"fips"), cfg!(feature = "sha2"));
 }
 
 /// With `fips-validated`, power-on checks the module HMAC against the published constant and it

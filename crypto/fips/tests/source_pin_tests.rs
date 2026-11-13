@@ -8,9 +8,9 @@
 //! the `integrity` feature.
 
 use bouncycastle_fips_build::{
-    BOUNDARY, BoundaryCrate, HMAC_LEN, Manifest, SourceFile, Toolchain, build_table, check_closure,
-    check_expected, crate_hmac, crlf_to_lf, dep_var_links, hex, module_hmac, parse_manifest,
-    render,
+    BOUNDARY, BoundaryCrate, HMAC_LEN, Manifest, NON_APPROVED, SourceFile, Toolchain, build_table,
+    check_approved_only, check_closure, check_expected, crate_hmac, crlf_to_lf, dep_var_links, hex,
+    module_hmac, parse_features, parse_manifest, render,
 };
 
 fn power_on() {
@@ -305,6 +305,10 @@ fn the_generated_file() {
         opt_level: "3".to_string(),
         profile: "release".to_string(),
         features: vec!["aes".to_string(), "fips-validated".to_string()],
+        crate_features: vec![
+            ("bouncycastle-aes".to_string(), vec!["fips".to_string()]),
+            ("bouncycastle-ec".to_string(), vec![]),
+        ],
     };
     let s = render(&table, &toolchain);
     assert!(
@@ -318,10 +322,57 @@ fn the_generated_file() {
     assert!(s.contains(
         "pub(crate) const TOOLCHAIN: ToolchainRecord = ToolchainRecord {\n    rustc: \"rustc 1.0.0 \
          (abc 2015-05-15)\",\n    host: \"h\",\n    target: \"t\",\n    opt_level: \"3\",\n    \
-         profile: \"release\",\n    features: &[\"aes\", \"fips-validated\"],\n};\n"
+         profile: \"release\",\n    features: &[\"aes\", \"fips-validated\"],\n    \
+         crate_features: &[\n        CrateFeatures { package: \"bouncycastle-aes\", features: \
+         &[\"fips\"] },\n        CrateFeatures { package: \"bouncycastle-ec\", features: &[] \
+         },\n    ],\n};\n"
     ), "{s}");
     assert_eq!(s.matches("ModuleTableEntry {").count(), 12);
     assert_eq!(s.matches("0x").count(), 12 * HMAC_LEN);
+}
+
+#[test]
+fn features_as_the_build_scripts_write_them() {
+    assert_eq!(parse_features(""), Vec::<String>::new());
+    assert_eq!(parse_features("sm2"), vec!["sm2"]);
+    assert_eq!(parse_features("std,default,fips"), vec!["default", "fips", "std"]);
+    assert_eq!(parse_features("a,,b,"), vec!["a", "b"]);
+}
+
+fn features(rows: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+    rows.iter().map(|(p, f)| (p.to_string(), f.iter().map(|f| f.to_string()).collect())).collect()
+}
+
+#[test]
+fn approved_only_accepts_approved_features() {
+    assert_eq!(NON_APPROVED, [("bouncycastle-ec", "sm2")]);
+    assert_eq!(check_approved_only(&[]), Ok(()));
+    let ok = features(&[
+        ("bouncycastle-core", &["default", "fips", "std"]),
+        ("bouncycastle-ec", &[]),
+        // A feature called `sm2` elsewhere is not the one in NON_APPROVED, nor is `default`.
+        ("bouncycastle-ecdsa", &["default", "sm2"]),
+        ("bouncycastle-ec2", &["sm2"]),
+        ("bouncycastle-ec", &["sm2-tables", "default"]),
+    ]);
+    assert_eq!(check_approved_only(&ok), Ok(()));
+}
+
+#[test]
+fn approved_only_names_the_crate_and_the_feature() {
+    let bad =
+        features(&[("bouncycastle-aes", &["fips"]), ("bouncycastle-ec", &["default", "sm2"])]);
+    let e = check_approved_only(&bad).unwrap_err();
+    assert_eq!(e.lines().count(), 1, "{e}");
+    assert!(
+        e.contains(
+            "`approved-only` is on, but `bouncycastle-ec` has the non-approved feature `sm2` on"
+        ),
+        "{e}"
+    );
+    // Every offending row is reported.
+    let twice = features(&[("bouncycastle-ec", &["sm2"]), ("bouncycastle-ec", &["sm2"])]);
+    assert_eq!(check_approved_only(&twice).unwrap_err().lines().count(), 2);
 }
 
 #[test]
