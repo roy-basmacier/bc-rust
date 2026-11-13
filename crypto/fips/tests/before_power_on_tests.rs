@@ -21,11 +21,11 @@ fn services_refuse_before_power_on() {
 #[cfg(feature = "sha2")]
 #[test]
 fn module_hmac_refuses_before_power_on() {
-    use bouncycastle_fips::{SelfTestError, SelfTestedAlgorithm, module_hmac};
-    assert_eq!(
-        module_hmac(),
-        Err(SelfTestError::NotPassed(SelfTestedAlgorithm::HMAC_SHA512, SelfTestStatus::NotRun))
-    );
+    use bouncycastle_fips::{SelfTestError, SelfTestedAlgorithm, module_hmac, module_info};
+    let not_passed =
+        SelfTestError::NotPassed(SelfTestedAlgorithm::HMAC_SHA512, SelfTestStatus::NotRun);
+    assert_eq!(module_hmac(), Err(not_passed));
+    assert_eq!(module_info(), Err(not_passed));
 }
 
 #[cfg(feature = "sha2")]

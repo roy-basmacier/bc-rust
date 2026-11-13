@@ -17,8 +17,21 @@ use bouncycastle::core::traits::StreamCipherDecryptor;
 use std::io::{ErrorKind, Write};
 use std::process::{Command, Output, Stdio};
 
-/// The path to the binary under test, resolved by cargo.
+#[cfg(feature = "fips")]
+pub mod fips_install;
+
+/// The path to the binary under test, resolved by cargo. With the `fips` feature it refuses to
+/// run as built; [`bc_rust`] is the copy to run.
 pub const BC_RUST: &str = env!("CARGO_BIN_EXE_bc-rust");
+
+/// The binary the tests run: [`BC_RUST`], or with the `fips` feature a copy of it that the
+/// post-link tool has been run on.
+pub fn bc_rust() -> &'static std::path::Path {
+    #[cfg(feature = "fips")]
+    return fips_install::shared();
+    #[cfg(not(feature = "fips"))]
+    return std::path::Path::new(BC_RUST);
+}
 
 /// Counting keys of the three lengths, for the checks that need a key but not a known answer.
 pub const KEY16: &str = "000102030405060708090a0b0c0d0e0f";
@@ -35,7 +48,7 @@ pub const KEY32: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1
 /// the exit status and stderr, which is all those tests assert on. Any other write error is a
 /// real problem and still panics.
 pub fn run(args: &[&str], stdin_bytes: &[u8]) -> Output {
-    let mut child = Command::new(BC_RUST)
+    let mut child = Command::new(bc_rust())
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -4,12 +4,21 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-# FIPS 140-3 self-tests for AES and SHA-2: every invocation runs them before its subcommand and
-# exits non-zero if they fail, and the `fips-self-test` subcommand runs them again on demand. Off
-# by default; without it the CLI is unchanged. Turning it on gates AES and SHA-2 in the whole build
-# (see "Feature unification" in the bouncycastle-fips docs), so test it on its own:
+# FIPS 140-3 power-on self-tests: every invocation runs them before its subcommand and exits
+# non-zero if they fail -- the SHA-2 and HMAC-SHA-512 self-tests, the software integrity test
+# (the binary HMAC), then the AES self-test. `fips-self-test` runs them again on demand and
+# `fips-info` prints the module table, the module HMAC and the toolchain record. Off by default;
+# without it the CLI is unchanged. Turning it on gates AES and SHA-2 in the whole build (see
+# "Feature unification" in the bouncycastle-fips docs), so test it on its own:
 # `cargo test -p cli --features fips`.
-fips = ["dep:bouncycastle-fips"]
+#
+# The binary refuses to run until the post-link tool has written its binary HMAC:
+# `crypto/fips/target/release/bc-fips-install target/<profile>/bc-rust`, after any `strip`.
+fips = ["dep:bouncycastle-fips", "bouncycastle-fips/integrity"]
+# `fips`, plus the module integrity check of a validated version: the build fails unless the
+# module HMAC is the published constant, and power-on checks it again after the software
+# integrity test.
+fips-validated = ["fips", "bouncycastle-fips/fips-validated"]
 
 [dependencies]
 clap = { version = "4.5.51", features = ["derive"] }

@@ -1,0 +1,13 @@
+[package]
+name = "fips-consumer-aes-only"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+# Only the self-tests of what it uses: AES, and SHA-2 for the integrity test.
+bouncycastle-fips = { path = "../../../..", default-features = false, features = ["aes", "integrity"] }
+bouncycastle-aes = { path = "../../../../../aes" }
+bouncycastle-cipher = { path = "../../../../../cipher" }
+bouncycastle-core = { path = "../../../../../core" }

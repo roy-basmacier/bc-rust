@@ -5184,11 +5184,16 @@ enum Subcommands {
         /// Output in hex format.
         x: bool,
     },
-    /// Runs the FIPS 140-3 self-tests for AES and SHA-2 again and prints each algorithm's status,
-    /// one `<algorithm>: <status>` line per algorithm; exits with status 3 if any fails. Every
-    /// invocation already runs them once at startup. Only with the `fips` feature.
+    /// Runs the FIPS 140-3 self-tests again and prints each one's status, one
+    /// `<algorithm>: <status>` line each; exits with status 3 if any fails. Every invocation
+    /// already runs them once at startup. Only with the `fips` feature.
     #[cfg(feature = "fips")]
     FipsSelfTest,
+    /// Prints the FIPS module table (one `<package> <HMAC>` line per crate of the module), the
+    /// `module-hmac` line and the toolchain record, for comparison with the Security Policy and
+    /// with dev_scripts/fips_module_hmac.py. Only with the `fips` feature.
+    #[cfg(feature = "fips")]
+    FipsInfo,
 }
 
 fn main() {
@@ -5204,7 +5209,8 @@ fn main() {
 fn run() {
     let cli = Cli::parse();
     helpers::set_hex_input(cli.hex_input);
-    // FIPS 140-3: the self-tests pass before any subcommand uses an algorithm, or nothing runs.
+    // FIPS 140-3: the self-tests, the software integrity test among them, pass before any
+    // subcommand runs, or nothing runs.
     #[cfg(feature = "fips")]
     fips_cmd::power_on(cli.fips_simulate_failure);
 
@@ -6372,6 +6378,8 @@ fn run() {
         }
         #[cfg(feature = "fips")]
         Some(Subcommands::FipsSelfTest) => fips_cmd::fips_self_test_cmd(),
+        #[cfg(feature = "fips")]
+        Some(Subcommands::FipsInfo) => fips_cmd::fips_info_cmd(),
         None => {
             eprintln!("No command provided. See -h")
         }

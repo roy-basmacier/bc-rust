@@ -144,17 +144,14 @@
 //! Security Policy:
 //!
 //! ```
-//! use bouncycastle_fips::{module_hmac, module_table, power_on_self_tests, toolchain};
+//! use bouncycastle_fips::{module_info, module_table, power_on_self_tests};
 //!
 //! power_on_self_tests().expect("self-tests pass");
-//! for entry in module_table() {
-//!     let hex: String = entry.hmac.iter().map(|b| format!("{b:02x}")).collect();
-//!     println!("{} {hex}", entry.package);
-//! }
-//! let t = toolchain();
-//! println!("{} on {} for {}, opt-level {}, {:?}", t.rustc, t.host, t.target, t.opt_level, t.features);
-//! let module: String = module_hmac().unwrap().iter().map(|b| format!("{b:02x}")).collect();
-//! println!("module-hmac {module}");
+//! // In the format of `bc-rust fips-info` and `dev_scripts/fips_module_hmac.py`; see ModuleInfo.
+//! let info = module_info().expect("HMAC-SHA-512 has passed its self-test");
+//! print!("{info}");
+//! // Or field by field.
+//! assert_eq!(info.table, module_table());
 //! ```
 //!
 //! `examples/crypto_officer.rs` runs the whole flow, including what an application that skips
@@ -338,8 +335,8 @@ mod integrity;
 mod module_table;
 
 pub use module_table::{
-    CrateFeatures, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleTableEntry, ToolchainRecord,
-    module_hmac, module_table, toolchain,
+    CrateFeatures, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleInfo, ModuleTableEntry, ToolchainRecord,
+    module_hmac, module_info, module_table, toolchain,
 };
 
 // The boundary crates this crate does not call. They are dependencies so that build.rs receives
