@@ -114,6 +114,15 @@ build script. Any edit to a boundary crate changes the module HMAC, so
 settings of that feature. To run the helper's mutants with the fips tests, use
 `cargo mutants --in-place -p bouncycastle-fips-build --test-workspace true`.
 
+The approved-mode switch (`crypto/fips/APPROVED_MODE.md`): `bouncycastle-ec`'s default `sm2`
+feature is the only non-approved one, so the workspace dependency on `bouncycastle-ec` has
+`default-features = false` and only `bouncycastle-sm2` asks for `sm2`; a new boundary crate must
+not take `ec` with default features. Every boundary `build.rs` emits `cargo:features=` beside
+`cargo:src_dir=`; a feature that adds a non-approved service goes into `NON_APPROVED` in
+`build-support`. Test `--features approved-only` too: it adds `bouncycastle_fips::approved` and
+its tests, and `tests/approved_mode_tests.rs` builds a separate program three ways to check that
+the table is the same with the switch on and off.
+
 Quality / mutation testing:
 
 ```
