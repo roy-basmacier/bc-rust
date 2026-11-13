@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-eccdh"
+links = "bouncycastle_eccdh"
 version.workspace = true
 edition.workspace = true
 

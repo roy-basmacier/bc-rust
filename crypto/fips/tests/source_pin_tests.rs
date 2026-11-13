@@ -202,7 +202,7 @@ fn closure_check_accepts_the_boundary() {
 #[test]
 fn an_unlisted_dependency_fails() {
     let mut crates = boundary();
-    crates[4].manifest.normal_deps.push("bouncycastle-hex".to_string());
+    crates[5].manifest.normal_deps.push("bouncycastle-hex".to_string());
     let e = closure_errors(&crates);
     assert!(e.contains("`bouncycastle-ec` depends on `bouncycastle-hex`"), "{e}");
     // An external crate other than getrandom is as unlisted as an internal one.
@@ -215,7 +215,7 @@ fn an_unlisted_dependency_fails() {
 fn a_missing_crate_fails() {
     // What a boundary crate without a `links` key looks like here: Cargo sets no DEP_ variable.
     let mut crates = boundary();
-    crates.remove(6);
+    crates.remove(8);
     let e = closure_errors(&crates);
     assert!(
         e.contains(
@@ -241,7 +241,7 @@ fn an_unlisted_crate_fails() {
 #[test]
 fn a_crate_found_twice_fails() {
     let mut crates = boundary();
-    crates.push(crates[3].clone());
+    crates.push(crates[4].clone());
     assert!(closure_errors(&crates).contains("`bouncycastle-core` was found twice"));
 }
 
@@ -310,7 +310,7 @@ fn the_generated_file() {
     assert!(
         s.contains(&format!("// Module HMAC, derived from TABLE: {}\n", hex(&module_hmac(&table))))
     );
-    assert!(s.contains("pub(crate) const TABLE: [ModuleTableEntry; 12] = [\n"));
+    assert!(s.contains("pub(crate) const TABLE: [ModuleTableEntry; 15] = [\n"));
     assert!(s.contains("        package: \"bouncycastle-aes\",\n        hmac: [\n            0x"));
     let first = &table[0].1;
     let line = first[..8].iter().map(|b| format!("0x{b:02x},")).collect::<Vec<_>>().join(" ");
@@ -320,8 +320,8 @@ fn the_generated_file() {
          (abc 2015-05-15)\",\n    host: \"h\",\n    target: \"t\",\n    opt_level: \"3\",\n    \
          profile: \"release\",\n    features: &[\"aes\", \"fips-validated\"],\n};\n"
     ), "{s}");
-    assert_eq!(s.matches("ModuleTableEntry {").count(), 12);
-    assert_eq!(s.matches("0x").count(), 12 * HMAC_LEN);
+    assert_eq!(s.matches("ModuleTableEntry {").count(), 15);
+    assert_eq!(s.matches("0x").count(), 15 * HMAC_LEN);
 }
 
 #[test]

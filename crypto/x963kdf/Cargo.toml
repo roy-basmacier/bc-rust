@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-x963kdf"
+links = "bouncycastle_x963kdf"
 version.workspace = true
 edition.workspace = true
 

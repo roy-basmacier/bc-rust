@@ -265,7 +265,7 @@
 //! | `bouncycastle_sha2::self_test` | 1320 B |
 //! | [`module_hmac`] | 3608 B |
 //!
-//! The module table is a `static` of 12 package names and 12 x 64 hash bytes. The state is a
+//! The module table is a `static` of 15 package names and 15 x 64 hash bytes. The state is a
 //! byte per algorithm and one for the module error state, all in `static`s. With the `fips`
 //! feature each SHA-2 hash is 8 bytes larger (whether its output is gated).
 //!
@@ -336,12 +336,15 @@ pub use module_table::{
 // their source directories and pins them in the module table; see `Cargo.toml`.
 use bouncycastle_ascon as _;
 use bouncycastle_cipher as _;
+use bouncycastle_concatkdf as _;
 use bouncycastle_ec as _;
+use bouncycastle_eccdh as _;
 use bouncycastle_ecdsa as _;
 use bouncycastle_hkdf as _;
 use bouncycastle_rng as _;
 use bouncycastle_sha3 as _;
 use bouncycastle_utils as _;
+use bouncycastle_x963kdf as _;
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
 /// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test and

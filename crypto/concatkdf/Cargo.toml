@@ -1,5 +1,6 @@
 [package]
 name = "bouncycastle-concatkdf"
+links = "bouncycastle_concatkdf"
 version.workspace = true
 edition.workspace = true
 

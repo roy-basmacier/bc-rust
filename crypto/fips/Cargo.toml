@@ -24,7 +24,7 @@ integrity = ["sha2"]
 fips-validated = ["sha2"]
 
 # The module boundary: every crate of the module, which is the normal-dependency closure of aes,
-# ascon, hmac, hkdf, sha3, ec and ecdsa. Each one is a direct dependency, whether or not this
+# ascon, hmac, hkdf, sha3, ec, ecdsa and eccdh. Each one is a direct dependency, whether or not this
 # crate uses it, because only a direct dependency's `links` metadata reaches build.rs, which
 # hashes the sources of each. build.rs keeps the same list and fails the build if the two, or the
 # closure, disagree.
@@ -32,8 +32,10 @@ fips-validated = ["sha2"]
 bouncycastle-aes = { path = "../aes" }
 bouncycastle-ascon = { path = "../ascon" }
 bouncycastle-cipher = { path = "../cipher" }
+bouncycastle-concatkdf = { path = "../concatkdf" }
 bouncycastle-core = { path = "../core", features = ["fips"] }
 bouncycastle-ec = { path = "../ec" }
+bouncycastle-eccdh = { path = "../eccdh" }
 bouncycastle-ecdsa = { path = "../ecdsa" }
 bouncycastle-hkdf = { path = "../hkdf" }
 bouncycastle-hmac = { path = "../hmac" }
@@ -41,6 +43,7 @@ bouncycastle-rng = { path = "../rng" }
 bouncycastle-sha2 = { path = "../sha2" }
 bouncycastle-sha3 = { path = "../sha3" }
 bouncycastle-utils = { path = "../utils" }
+bouncycastle-x963kdf = { path = "../x963kdf" }
 
 # The build script's HMAC-SHA-512 comes through this crate, never a direct build-dependency on
 # bouncycastle-sha2; see build-support/Cargo.toml for why.

@@ -86,14 +86,15 @@ pub fn module_hmac(table: &[TableRow]) -> [u8; HMAC_LEN] {
     mac.do_final()
 }
 
-/// The module boundary: the normal-dependency closure of aes, ascon, hmac, hkdf, sha3, ec and
-/// ecdsa (`cargo tree -e normal`), in table order. Every one is a direct dependency of
+/// The module boundary: the normal-dependency closure of aes, ascon, hmac, hkdf, sha3, ec,
+/// ecdsa and eccdh (`cargo tree -e normal`), in table order. Every one is a direct dependency of
 /// `bouncycastle-fips`, in its `Cargo.toml`, and has a `links` key; [`check_closure`] holds the
 /// two lists and the closure to each other.
-pub const BOUNDARY: [&str; 12] = [
-    "bouncycastle-aes", "bouncycastle-ascon", "bouncycastle-cipher", "bouncycastle-core",
-    "bouncycastle-ec", "bouncycastle-ecdsa", "bouncycastle-hkdf", "bouncycastle-hmac",
-    "bouncycastle-rng", "bouncycastle-sha2", "bouncycastle-sha3", "bouncycastle-utils",
+pub const BOUNDARY: [&str; 15] = [
+    "bouncycastle-aes", "bouncycastle-ascon", "bouncycastle-cipher", "bouncycastle-concatkdf",
+    "bouncycastle-core", "bouncycastle-ec", "bouncycastle-eccdh", "bouncycastle-ecdsa",
+    "bouncycastle-hkdf", "bouncycastle-hmac", "bouncycastle-rng", "bouncycastle-sha2",
+    "bouncycastle-sha3", "bouncycastle-utils", "bouncycastle-x963kdf",
 ];
 
 /// The crates outside this project that a boundary crate may depend on directly. They carry no
