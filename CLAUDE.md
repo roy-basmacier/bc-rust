@@ -84,12 +84,20 @@ The FIPS software integrity test (`bouncycastle-fips`'s `integrity` feature) fai
 cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
 strip target/release/<program>                               # optional; strip goes first
 crypto/fips/target/release/bc-fips-install target/release/<program>    # then sign, if signing
-cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs a test program
+cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs the test programs
 ```
 
 Order matters: run it after the last `strip` (strip rewrites the ELF header, which is hashed) and
 before any code signing; run it again after anything that changes the file. It edits the file in
 place, prints the slot offset and value, and exits 1 on a file with no slot or two.
+
+The end-to-end test of the module integrity work is that tool's `tests/two_consumers_tests.rs`
+(two programs, AES-only and everything, in `tests/consumers`), not a `--workspace` test, since
+`bouncycastle-fips` is outside the workspace. The CLI's `fips` feature turns `integrity` on, so a
+`bc-rust` built with it exits 3 until the tool has run on it; `bc-rust fips-info` then prints the
+module table, `module-hmac` and the toolchain record. `cargo test -p cli --features fips` (and
+`--features fips-validated`) builds the tool into the test's own target directory and runs every
+CLI test against an installed copy (`cli/tests/common/fips_install.rs`).
 
 Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
 the Rust build script):
