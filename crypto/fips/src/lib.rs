@@ -35,7 +35,7 @@
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
 //! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
-//! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates |
+//! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates, and the `approved` module offers the approved services as concrete types |
 //!
 //! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
 //! test, the module integrity check, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
@@ -325,6 +325,8 @@ use bouncycastle_aes as aes;
 #[cfg(feature = "sha2")]
 use bouncycastle_sha2 as sha2;
 
+#[cfg(feature = "approved-only")]
+pub mod approved;
 #[cfg(feature = "sha2")]
 pub mod binary_hmac;
 #[cfg(feature = "fips-validated")]
