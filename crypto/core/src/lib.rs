@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 #![forbid(missing_docs)]
 
+pub mod agreement_key;
 pub mod direction;
 pub mod errors;
 #[cfg(feature = "fips")]

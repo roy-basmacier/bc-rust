@@ -8,6 +8,7 @@ edition.workspace = true
 bouncycastle-utils.workspace = true
 
 [dev-dependencies]
+bouncycastle-core.workspace = true
 bouncycastle-hex.workspace = true
 criterion.workspace = true
 

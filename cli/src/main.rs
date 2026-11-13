@@ -1,14 +1,18 @@
 #![forbid(unsafe_code)]
 
 mod ascon_cmd;
+mod blake2_cmd;
+mod blake3_cmd;
 mod cbc_cmd;
 mod ccm_cmd;
 mod cfb8_cmd;
 mod cfb_cmd;
 mod chacha20_cmd;
 mod chacha20_poly1305_cmd;
+mod concatkdf_cmd;
 mod ctr_cmd;
 mod ecb_cmd;
+mod eccdh_cmd;
 mod ecdsa_cmd;
 mod encoders_cmd;
 #[cfg(feature = "fips")]
@@ -25,7 +29,11 @@ mod sha2_cmd;
 mod sha3_cmd;
 mod sm2_cmd;
 mod sm3_cmd;
+mod x963kdf_cmd;
 
+use crate::blake2_cmd::BLAKE2Variant;
+use crate::concatkdf_cmd::ConcatKDFVariant;
+use crate::eccdh_cmd::ECCDHAction;
 use crate::ecdsa_cmd::ECDSAAction;
 use crate::hkdf_cmd::HKDFVariant;
 use crate::mac_cmd::HMACVariant;
@@ -34,6 +42,7 @@ use crate::rng_cmd::DrbgHash;
 use crate::sha2_cmd::SHA2Variant;
 use crate::sha3_cmd::{SHA3Variant, Strength};
 use crate::sm2_cmd::SM2Action;
+use crate::x963kdf_cmd::X963KDFVariant;
 use bouncycastle::aes::hazmat::{AES128Internal, AES192Internal, AES256Internal};
 use bouncycastle::aria::hazmat::{ARIA128Internal, ARIA192Internal, ARIA256Internal};
 use bouncycastle::camellia::hazmat::{
@@ -1219,6 +1228,130 @@ enum Subcommands {
         deterministic: bool,
     },
 
+    /// ECC CDH key agreement over NIST P-256 (SP 800-56A Rev. 3 Section 5.7.1.2). `agree` writes
+    /// the raw shared secret Z, which must be passed through a KDF before use as a key: write it
+    /// to a file and give that to `hkdf-sha256 --ikm-file`, `x963kdf-sha256 --ikm-file` or
+    /// `concatkdf-sha256 --ikm-file`, not the inline `--ikm`, which leaves Z in the command
+    /// history. Keys are for key agreement
+    /// only, never also for signing.
+    ECCDH_P256 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over NIST P-384 (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_P384 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over NIST P-521 (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_P521 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over secp256k1 (SEC 2) (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_SECP256K1 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over brainpoolP256r1 (RFC 5639) (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_BP256R1 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over brainpoolP384r1 (RFC 5639) (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_BP384R1 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// ECC CDH key agreement over brainpoolP512r1 (RFC 5639) (SP 800-56A Rev. 3 Section 5.7.1.2). See eccdh-p256.
+    ECCDH_BP512R1 {
+        action: ECCDHAction,
+
+        #[arg(long)]
+        /// The private key file (raw bytes; hex with --hex-input); stdin if absent
+        skfile: Option<String>,
+
+        #[arg(long)]
+        /// The public key file (raw bytes; hex with --hex-input): the own key for check-consistency, the peer's for agree
+        pkfile: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
     AES256_ECB {
         #[arg(short, long)]
         direction: CipherDirection,
@@ -1554,6 +1687,87 @@ enum Subcommands {
         x: bool,
     },
 
+    /// Perform BLAKE2b-512 (RFC 7693) of the content provided on stdin.
+    /// Supports streaming update for low memory footprint.
+    BLAKE2b_512 {
+        #[arg(short)]
+        /// Output the digest in hex format.
+        x: bool,
+    },
+
+    /// Perform BLAKE2s-256 (RFC 7693) of the content provided on stdin.
+    /// Supports streaming update for low memory footprint.
+    BLAKE2s_256 {
+        #[arg(short)]
+        /// Output the digest in hex format.
+        x: bool,
+    },
+
+    /// Perform keyed BLAKE2b-512 (RFC 7693 Sec 3.3, BLAKE2's built-in MAC; not HMAC) of the
+    /// content provided on stdin. The key is 1 to 64 bytes.
+    /// Supports streaming update for low memory footprint.
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    BLAKE2b_512_MAC {
+        /// The MAC key in hex.
+        /// The `key_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        key: Option<String>,
+
+        /// A file containing the MAC key in binary.
+        /// If both key and key_file options are provided, the file will be used.
+        #[arg(short, long)]
+        key_file: Option<String>,
+
+        /// A MAC value to be verified.
+        /// The command will output either 0 for success or -1 for verification failure.
+        #[arg(short, long)]
+        verify: Option<String>,
+
+        #[arg(short)]
+        /// Output the tag in hex format.
+        x: bool,
+    },
+
+    /// Perform keyed BLAKE2s-256 (RFC 7693 Sec 3.3, BLAKE2's built-in MAC; not HMAC) of the
+    /// content provided on stdin. The key is 1 to 32 bytes.
+    /// Supports streaming update for low memory footprint.
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    BLAKE2s_256_MAC {
+        /// The MAC key in hex.
+        /// The `key_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        key: Option<String>,
+
+        /// A file containing the MAC key in binary.
+        /// If both key and key_file options are provided, the file will be used.
+        #[arg(short, long)]
+        key_file: Option<String>,
+
+        /// A MAC value to be verified.
+        /// The command will output either 0 for success or -1 for verification failure.
+        #[arg(short, long)]
+        verify: Option<String>,
+
+        #[arg(short)]
+        /// Output the tag in hex format.
+        x: bool,
+    },
+
+    /// Perform BLAKE3 of the content provided on stdin, with output of any length (32 bytes by
+    /// default). Shorter outputs are prefixes of longer ones.
+    /// Supports streaming update for low memory footprint.
+    BLAKE3 {
+        /// Length of the output in bytes.
+        #[arg(short, long, default_value_t = blake3_cmd::BLAKE3_DEFAULT_OUT_LEN)]
+        length: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
     /// Perform cSHAKE256 (NIST SP 800-185 Sec 3). See cshake128.
     CSHAKE256 {
         /// Length of the output in bytes.
@@ -1570,6 +1784,56 @@ enum Subcommands {
         #[arg(long)]
         /// Customization string S in hex, for bytes that are not text.
         customization_hex: Option<String>,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// Perform BLAKE3 in keyed_hash mode (a MAC and PRF) of the content provided on stdin. The key
+    /// must be exactly 32 bytes. Output of any length (32 bytes by default); --verify checks the
+    /// 32-byte tag.
+    /// Supports streaming update for low memory footprint.
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    BLAKE3_KeyedHash {
+        /// The 32-byte MAC key in hex.
+        /// The `key_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        key: Option<String>,
+
+        /// A file containing the 32-byte MAC key in binary.
+        /// If both key and key_file options are provided, the file will be used.
+        #[arg(short, long)]
+        key_file: Option<String>,
+
+        /// A 32-byte tag (hex) to be verified. Cannot be combined with --length.
+        /// The command will output either 0 for success or -1 for verification failure.
+        #[arg(short, long)]
+        verify: Option<String>,
+
+        /// Length of the output in bytes.
+        #[arg(short, long, default_value_t = blake3_cmd::BLAKE3_DEFAULT_OUT_LEN)]
+        length: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// Perform BLAKE3 in derive_key mode: derive a key of any length (32 bytes by default) from
+    /// the key material provided on stdin, under a context string. The context string should be
+    /// hardcoded, globally unique and application-specific (BLAKE3 spec Sec 6.2).
+    /// Supports streaming update for low memory footprint.
+    BLAKE3_DeriveKey {
+        /// The context string, e.g. "example.com 2019-12-25 16:18:03 session tokens v1" (BLAKE3
+        /// spec Sec 6.2).
+        #[arg(short, long)]
+        context: String,
+
+        /// Length of the derived key in bytes.
+        #[arg(short, long, default_value_t = blake3_cmd::BLAKE3_DEFAULT_OUT_LEN)]
+        length: usize,
 
         #[arg(short)]
         /// Output in hex format.
@@ -1703,6 +1967,315 @@ enum Subcommands {
     /// Encode binary data from stdin to hex.
     /// Supports streaming for low memory footprint and continuous processing from stdin to stdout.
     HexEncode,
+
+    /// The NIST concatenation KDF over SHA-256 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha256")]
+    ConcatKDF_SHA256 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The NIST concatenation KDF over SHA-384 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha384")]
+    ConcatKDF_SHA384 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The NIST concatenation KDF over SHA-512 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha512")]
+    ConcatKDF_SHA512 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The NIST concatenation KDF over SHA3-256 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha3-256")]
+    ConcatKDF_SHA3_256 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The NIST concatenation KDF over SHA3-384 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha3-384")]
+    ConcatKDF_SHA3_384 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The NIST concatenation KDF over SHA3-512 (SP 800-56C Rev. 2 Section 4.1, H(x) = hash(x)):
+    /// keying material of len bytes from a shared secret and the optional FixedInfo,
+    /// K(i) = H(counter || Z || FixedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    #[command(name = "concatkdf-sha3-512")]
+    ConcatKDF_SHA3_512 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The FixedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the FixedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying material to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The ANSI X9.63 KDF over SHA-256 (SEC 1 v2 Section 3.6.1): keying data of len bytes from a
+    /// shared secret and the optional SharedInfo, K_i = Hash(Z || Counter || SharedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    X963KDF_SHA256 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The SharedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the SharedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying data to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The ANSI X9.63 KDF over SHA-384 (SEC 1 v2 Section 3.6.1): keying data of len bytes from a
+    /// shared secret and the optional SharedInfo, K_i = Hash(Z || Counter || SharedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    X963KDF_SHA384 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The SharedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the SharedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying data to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
+
+    /// The ANSI X9.63 KDF over SHA-512 (SEC 1 v2 Section 3.6.1): keying data of len bytes from a
+    /// shared secret and the optional SharedInfo, K_i = Hash(Z || Counter || SharedInfo).
+    /// Note: in production uses, secrets should not be passed on the command-line because they get
+    /// logged in shell history. Use the file-based input instead.
+    X963KDF_SHA512 {
+        /// The shared secret Z in hex.
+        /// The `ikm_file` option is preferred to avoid leaving key material in command history.
+        #[arg(long)]
+        ikm: Option<String>,
+
+        /// A file containing the shared secret Z in binary.
+        /// If both ikm and ikm_file options are provided, the file will be used.
+        #[arg(short, long)]
+        ikm_file: Option<String>,
+
+        /// The SharedInfo input in hex. Optional; defaults to empty.
+        #[arg(long)]
+        additional_input: Option<String>,
+
+        /// A file containing the SharedInfo input in binary. Optional; defaults to empty.
+        /// If both additional_input and additional_input_file options are provided, the file will be used.
+        #[arg(short, long)]
+        additional_input_file: Option<String>,
+
+        /// Length of keying data to produce, in bytes: at most 16320.
+        #[arg(short, long)]
+        len: usize,
+
+        #[arg(short)]
+        /// Output in hex format.
+        x: bool,
+    },
 
     /// Perform HKDF-SHA256 (RFC 5869 extract-then-expand) of the provided input keying material:
     ///     OKM = HKDF-Expand(HKDF-Extract(salt, ikm), info, len)
@@ -5422,6 +5995,27 @@ fn run() {
         Some(Subcommands::ECDSA_BP512R1 { action, skfile, pkfile, sigfile, x, deterministic }) => {
             ecdsa_cmd::ecdsa_bp512r1_cmd(action, skfile, pkfile, sigfile, *x, *deterministic);
         }
+        Some(Subcommands::ECCDH_P256 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_p256_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_P384 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_p384_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_P521 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_p521_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_SECP256K1 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_secp256k1_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_BP256R1 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_bp256r1_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_BP384R1 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_bp384r1_cmd(action, skfile, pkfile, *x);
+        }
+        Some(Subcommands::ECCDH_BP512R1 { action, skfile, pkfile, x }) => {
+            eccdh_cmd::eccdh_bp512r1_cmd(action, skfile, pkfile, *x);
+        }
         Some(Subcommands::CHACHA20 { direction, key, key_file, iv, iv_file, x }) => {
             chacha20_cmd::chacha20_cmd(direction, key, key_file, iv, iv_file, *x);
         }
@@ -5438,6 +6032,25 @@ fn run() {
             chacha20_poly1305_cmd::chacha20_poly1305_cmd(
                 direction, key, key_file, iv, iv_file, aad, aad_file, *x,
             );
+        }
+        Some(Subcommands::BLAKE2b_512 { x }) => {
+            blake2_cmd::blake2_cmd(BLAKE2Variant::BLAKE2b_512, *x);
+        }
+        Some(Subcommands::BLAKE2s_256 { x }) => {
+            blake2_cmd::blake2_cmd(BLAKE2Variant::BLAKE2s_256, *x);
+        }
+        Some(Subcommands::BLAKE2b_512_MAC { key, key_file, verify, x }) => {
+            blake2_cmd::blake2_mac_cmd(BLAKE2Variant::BLAKE2b_512, key, key_file, verify, *x)
+        }
+        Some(Subcommands::BLAKE2s_256_MAC { key, key_file, verify, x }) => {
+            blake2_cmd::blake2_mac_cmd(BLAKE2Variant::BLAKE2s_256, key, key_file, verify, *x)
+        }
+        Some(Subcommands::BLAKE3 { length, x }) => blake3_cmd::blake3_cmd(*length, *x),
+        Some(Subcommands::BLAKE3_KeyedHash { key, key_file, verify, length, x }) => {
+            blake3_cmd::blake3_keyed_hash_cmd(key, key_file, verify, *length, *x)
+        }
+        Some(Subcommands::BLAKE3_DeriveKey { context, length, x }) => {
+            blake3_cmd::blake3_derive_key_cmd(context, *length, *x)
         }
         Some(Subcommands::HashMLDSA44 {
             action,
@@ -5510,6 +6123,168 @@ fn run() {
         }
         Some(Subcommands::HexEncode) => {
             encoders_cmd::hex_encode_cmd();
+        }
+        Some(Subcommands::ConcatKDF_SHA256 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA256,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::ConcatKDF_SHA384 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA384,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::ConcatKDF_SHA512 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA512,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::ConcatKDF_SHA3_256 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA3_256,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::ConcatKDF_SHA3_384 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA3_384,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::ConcatKDF_SHA3_512 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            concatkdf_cmd::concatkdf_cmd(
+                ConcatKDFVariant::SHA3_512,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::X963KDF_SHA256 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            x963kdf_cmd::x963kdf_cmd(
+                X963KDFVariant::SHA256,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::X963KDF_SHA384 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            x963kdf_cmd::x963kdf_cmd(
+                X963KDFVariant::SHA384,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
+        }
+        Some(Subcommands::X963KDF_SHA512 {
+            ikm,
+            ikm_file,
+            additional_input,
+            additional_input_file,
+            len,
+            x,
+        }) => {
+            x963kdf_cmd::x963kdf_cmd(
+                X963KDFVariant::SHA512,
+                ikm,
+                ikm_file,
+                additional_input,
+                additional_input_file,
+                *len,
+                *x,
+            );
         }
         Some(Subcommands::HKDF_SHA256 {
             salt,
