@@ -1,0 +1,19 @@
+[package]
+name = "fips-consumer-everything"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+bouncycastle-fips = { path = "../../../..", features = ["integrity"] }
+bouncycastle-aes = { path = "../../../../../aes" }
+bouncycastle-ascon = { path = "../../../../../ascon" }
+bouncycastle-cipher = { path = "../../../../../cipher" }
+bouncycastle-core = { path = "../../../../../core" }
+bouncycastle-ecdsa = { path = "../../../../../ecdsa" }
+bouncycastle-hkdf = { path = "../../../../../hkdf" }
+bouncycastle-hmac = { path = "../../../../../hmac" }
+bouncycastle-rng = { path = "../../../../../rng" }
+bouncycastle-sha2 = { path = "../../../../../sha2" }
+bouncycastle-sha3 = { path = "../../../../../sha3" }

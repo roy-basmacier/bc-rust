@@ -56,7 +56,8 @@ name = "crypto_officer"
 required-features = ["aes", "sha2"]
 
 [workspace]
-# The post-link tool. Its test program, `bc-fips-install/tests/consumer`, is a workspace of its own.
+# The post-link tool. Its test programs, `bc-fips-install/tests/consumer` and
+# `bc-fips-install/tests/consumers`, are workspaces of their own.
 # `build-support` is the build script's helper crate.
 members = ["bc-fips-install", "build-support"]
 # `cargo test --manifest-path crypto/fips/Cargo.toml` tests the build-time half too.
