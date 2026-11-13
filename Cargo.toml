@@ -26,7 +26,9 @@ bouncycastle-cipher = { path = "./crypto/cipher" }
 bouncycastle-core = { path = "crypto/core" }
 bouncycastle-cipher-test-framework = { path = "./crypto/cipher-test-framework" }
 bouncycastle-core-test-framework = { path = "./crypto/core-test-framework" }
-bouncycastle-ec = { path = "./crypto/ec" }
+# Without its default `sm2` feature, so that a crate which needs no SM2 (`bouncycastle-ecdsa`) does
+# not turn it on in a FIPS-approved build; `bouncycastle-sm2` asks for it.
+bouncycastle-ec = { path = "./crypto/ec", default-features = false }
 bouncycastle-ecdsa = { path = "./crypto/ecdsa" }
 bouncycastle-factory = { path = "./crypto/factory" }
 bouncycastle-hex = { path = "./crypto/hex" }

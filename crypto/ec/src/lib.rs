@@ -114,6 +114,10 @@
 //! [`bouncycastle_ecdsa`](../bouncycastle_ecdsa/index.html) (the seven ECDSA curves) and
 //! [`bouncycastle_sm2`](../bouncycastle_sm2/index.html).
 //!
+//! SM2's modules are behind the `sm2` cargo feature, which is on by default. SP 800-186 does not
+//! list SM2, so a FIPS-approved build (`bouncycastle-fips` with `approved-only`) refuses to build
+//! with it on.
+//!
 //! # Memory Usage
 //!
 //! Every type here is a fixed-size array of `u64` limbs with no indirection, so its in-memory size
