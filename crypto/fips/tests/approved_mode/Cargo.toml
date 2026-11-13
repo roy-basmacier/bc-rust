@@ -1,0 +1,21 @@
+# The test program `tests/approved_mode_tests.rs` builds with different features and runs: it
+# prints the module table, the module HMAC and the toolchain record of the bouncycastle-fips it
+# links. Its own workspace, so that the features it turns on are never unified into the tests of
+# bouncycastle-fips itself.
+[package]
+name = "bouncycastle-fips-approved-mode-consumer"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[features]
+# A dependency elsewhere in the program that turns SM2 on, as bouncycastle-sm2 does.
+sm2 = ["dep:bouncycastle-ec", "bouncycastle-ec/sm2"]
+approved-only = ["bouncycastle-fips/approved-only"]
+
+[dependencies]
+bouncycastle-fips = { path = "../.." }
+bouncycastle-ec = { path = "../../../ec", default-features = false, optional = true }
+
+[workspace]
