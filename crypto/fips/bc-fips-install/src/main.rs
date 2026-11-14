@@ -41,7 +41,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use bouncycastle_fips::binary_hmac::{
-    BinaryHmacError, SLOT_MAGIC, VALUE_LEN, find_slot, image_hmac, read_only_segments,
+    BinaryHmacError, SLOT_MAGIC_LEN, VALUE_LEN, find_slot, image_hmac, read_only_segments,
 };
 use bouncycastle_fips::{SelfTestError, power_on_self_tests};
 
@@ -108,7 +108,7 @@ fn install(path: &Path) -> Result<(u64, [u8; VALUE_LEN]), Error> {
 
     // The value goes right after the magic. `image_hmac` checked that the whole slot is inside a
     // segment of the file, so this writes over existing bytes and never extends the file.
-    file.seek(SeekFrom::Start(slot_offset + SLOT_MAGIC.len() as u64)).map_err(Error::Io)?;
+    file.seek(SeekFrom::Start(slot_offset + SLOT_MAGIC_LEN as u64)).map_err(Error::Io)?;
     file.write_all(&value).map_err(Error::Io)?;
     file.sync_all().map_err(Error::Io)?;
     Ok((slot_offset, value))

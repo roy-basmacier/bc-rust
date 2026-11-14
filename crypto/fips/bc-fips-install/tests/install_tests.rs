@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
-use bouncycastle_fips::binary_hmac::{SLOT_LEN, SLOT_MAGIC, find_slot, read_only_segments};
+use bouncycastle_fips::binary_hmac::{
+    BinaryHmacError, SLOT_LEN, SLOT_MAGIC, find_slot, read_only_segments,
+};
 
 /// What the consumer prints once power-on has passed (its `PASSED`).
 const PASSED: &[u8] = b"bc-fips-install consumer: power-on passed";
@@ -46,7 +48,17 @@ fn tool(args: &[&Path]) -> Output {
 }
 
 fn run(program: &Path) -> Output {
-    Command::new(program).output().unwrap()
+    // The tests run on threads of one process, and each writes its own copy of a program. A
+    // child forked by one thread while another has its copy open for writing inherits that
+    // descriptor until it execs, and running the copy in that window fails with ETXTBSY.
+    loop {
+        match Command::new(program).output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            output => return output.unwrap(),
+        }
+    }
 }
 
 fn stdout(output: &Output) -> String {
@@ -229,6 +241,22 @@ fn refuses_a_file_with_no_slot() {
     let slot = find_slot(&fs::read(&program).unwrap()).unwrap() as usize;
     flip_byte(&program, slot);
     assert_refused(&program, "no integrity slot");
+}
+
+/// A program that searches for the slot must not contain the magic outside its own slot. The tool
+/// is such a program, built without `integrity`: it has no slot, so it must refuse itself and
+/// leave the copy as it was. (It once found the constant `find_slot` compared with, and wrote the
+/// value over the 64 bytes of read-only data after it.)
+#[test]
+fn refuses_itself_because_the_search_does_not_contain_the_magic() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("install-tests").join("itself");
+    fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join("bc-fips-install");
+    fs::copy(env!("CARGO_BIN_EXE_bc-fips-install"), &copy).unwrap();
+    let before = fs::read(&copy).unwrap();
+    assert_eq!(find_slot(&before), Err(BinaryHmacError::NoSlot));
+    assert_refused(&copy, "no integrity slot");
+    assert_eq!(fs::read(&copy).unwrap(), before);
 }
 
 #[test]

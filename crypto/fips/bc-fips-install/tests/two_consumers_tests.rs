@@ -80,7 +80,17 @@ fn install(program: &Path) {
 }
 
 fn run(program: &Path) -> Output {
-    Command::new(program).output().unwrap()
+    // The tests run on threads of one process, and each writes its own copy of a program. A
+    // child forked by one thread while another has its copy open for writing inherits that
+    // descriptor until it execs, and running the copy in that window fails with ETXTBSY.
+    loop {
+        match Command::new(program).output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            output => return output.unwrap(),
+        }
+    }
 }
 
 /// Runs the installed `consumer` at `program`, asserts that it passed power-on and used its
@@ -135,8 +145,7 @@ fn both_programs_embed_the_same_table_and_module_hmac_as_the_independent_script(
     // Built with different features of bouncycastle-fips, as the toolchain record says.
     assert!(aes_only_info.ends_with("toolchain.features aes integrity sha2\n"), "{aes_only_info}");
     assert!(
-        everything_info
-            .ends_with("toolchain.features aes default eccdh ecdsa integrity sha2\n"),
+        everything_info.ends_with("toolchain.features aes default eccdh ecdsa integrity sha2\n"),
         "{everything_info}"
     );
 

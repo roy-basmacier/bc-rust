@@ -61,7 +61,7 @@ fn self_test_command_reports_every_algorithm_passed() {
     assert_eq!(
         out,
         "SHA-256: Passed\nSHA-512: Passed\nHMAC-SHA-512: Passed\n\
-         software integrity: Passed\nAES: Passed\n"
+         software integrity: Passed\nAES: Passed\nECDSA: Passed\nECC CDH: Passed\n"
     );
 }
 

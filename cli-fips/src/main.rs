@@ -2928,8 +2928,9 @@ enum Subcommands {
     /// already runs them once at startup.
     FipsSelfTest,
     /// Prints the FIPS module table (one `<package> <HMAC>` line per crate of the module), the
-    /// `module-hmac` line and the toolchain record, for comparison with the Security Policy and
-    /// with dev_scripts/fips_module_hmac.py.
+    /// `module-hmac` line, one `external <package> <version> <checksum>` line per crate from
+    /// crates.io in the module, and the toolchain record, for comparison with the Security Policy
+    /// and with dev_scripts/fips_module_hmac.py.
     FipsInfo,
 }
 

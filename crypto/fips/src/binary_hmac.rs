@@ -14,7 +14,9 @@
 //!
 //! * **The slot** is [`SLOT_LEN`] bytes: [`SLOT_MAGIC`], then the [`VALUE_LEN`]-byte value, in a
 //!   read-only segment. The tool finds it by its magic ([`find_slot`]), not by a symbol, so it
-//!   survives a `strip`. An all-zero value means the tool never ran, and the test fails.
+//!   survives a `strip`. An all-zero value means the tool never ran, and the test fails. The
+//!   magic's 16 bytes must occur nowhere else in the program: [`find_slot`] itself does not
+//!   contain them, and a program must not copy [`SLOT_MAGIC`] into other data of its own.
 //! * **The ranges** are the file bytes (`p_offset`, `p_filesz`) of every `PT_LOAD` segment that
 //!   is not writable (no `PF_W`), in ascending `p_offset` order, with the slot's [`SLOT_LEN`]
 //!   bytes left out wherever a segment contains them ([`read_only_segments`]). Writable segments
@@ -51,8 +53,13 @@ pub const SLOT_MAGIC: [u8; 16] = *b"BC-RUST FIPS HM\x01";
 /// The length of the HMAC-SHA-512 value in the slot.
 pub const VALUE_LEN: usize = 64;
 
+/// The length of [`SLOT_MAGIC`], and so the offset of the value in the slot. Code that only needs
+/// the length uses this rather than `SLOT_MAGIC.len()`, which in an unoptimised build puts a copy
+/// of the magic's bytes into the program.
+pub const SLOT_MAGIC_LEN: usize = SLOT_MAGIC.len();
+
 /// The length of the slot: [`SLOT_MAGIC`] then the value.
-pub const SLOT_LEN: usize = SLOT_MAGIC.len() + VALUE_LEN;
+pub const SLOT_LEN: usize = SLOT_MAGIC_LEN + VALUE_LEN;
 
 /// The HMAC key: the public string the module HMAC is keyed with too.
 pub const KEY: &[u8] = b"Legion of the Bouncy Castle FIPS Rust API";
@@ -285,13 +292,45 @@ pub fn read_only_segments(headers: &[u8]) -> Result<Segments, BinaryHmacError> {
 /// # Errors
 /// [`BinaryHmacError::NoSlot`] or [`BinaryHmacError::MultipleSlots`].
 pub fn find_slot(image: &[u8]) -> Result<u64, BinaryHmacError> {
-    let mut found = image.windows(SLOT_MAGIC.len()).enumerate().filter(|(_, w)| *w == SLOT_MAGIC);
+    let mut found = image
+        .windows(SLOT_MAGIC_LEN)
+        .enumerate()
+        .filter(|(_, w)| w[0] == SLOT_MAGIC_FIRST && magic_tag(w) == SLOT_MAGIC_TAG);
     match (found.next(), found.next()) {
         (Some((at, _)), None) => Ok(at as u64),
         (None, _) => Err(BinaryHmacError::NoSlot),
         (Some(_), Some(_)) => Err(BinaryHmacError::MultipleSlots),
     }
 }
+
+/// A 64-bit tag of `bytes`: each byte added in, then a multiplication by an arbitrary odd constant
+/// and a fold of the high half into the low. Not a cryptographic hash, and it need not be:
+/// [`find_slot`] uses it only to tell [`SLOT_MAGIC`] from other bytes of a file, where a chance
+/// match of 64 bits is not a practical concern.
+///
+/// It exists so that the code that searches for the magic does not contain the magic. A plain
+/// comparison with [`SLOT_MAGIC`] compiles to a 16-byte constant in the read-only data of every
+/// program that calls [`find_slot`]; the post-link tool is such a program, and it found that
+/// constant in itself, or in any program built without the `integrity` feature that searches for
+/// a slot, took it for a slot, and wrote 64 bytes over whatever followed it. With the tag, the
+/// only place the magic's bytes occur in a program is its slot.
+const fn magic_tag(bytes: &[u8]) -> u64 {
+    let mut tag = 0u64;
+    let mut i = 0;
+    while i < bytes.len() {
+        tag = (tag ^ bytes[i] as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        tag ^= tag >> 32;
+        i += 1;
+    }
+    tag
+}
+
+/// The first byte of [`SLOT_MAGIC`], which [`find_slot`] looks for before it computes a tag. A
+/// constant of its own for the reason [`SLOT_MAGIC_LEN`] is.
+const SLOT_MAGIC_FIRST: u8 = SLOT_MAGIC[0];
+
+/// [`magic_tag`] of [`SLOT_MAGIC`], evaluated at compile time.
+const SLOT_MAGIC_TAG: u64 = magic_tag(&SLOT_MAGIC);
 
 /// The binary HMAC of the ELF file `image` whose slot starts at file offset `slot_offset`: the
 /// value the post-link tool writes into the slot.
