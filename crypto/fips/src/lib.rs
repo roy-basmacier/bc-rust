@@ -29,9 +29,8 @@
 //! infallible (`SHA256::new()`, a one-shot `hash()`) it panics, and `from_suspended` returns
 //! `SuspendableError::SelfTestNotPassed`. Once any self-test has failed, the module is in the
 //! error state until the program restarts: no service can be created, and a service that already
-//! exists -- a key, a worker, a hash in progress -- panics on its next gated operation, since
-//! none of those operations returns an error for it. For AES the gated operation is the block
-//! operation, which leaves a gap (see Security Considerations). No self-test runs before `main`.
+//! exists -- a key, a worker, a hash in progress -- panics on its next operation, since
+//! none of those operations returns an error for it. No self-test runs before `main`.
 //!
 //! The cargo features select which algorithms are self-tested and gated:
 //!
@@ -391,14 +390,9 @@
 //!   `bouncycastle-core` (or of an algorithm crate) has two independent sets, and a failure in one
 //!   does not stop the other.
 //! * **The error state is permanent and panics.** After a failure, an existing key, worker or
-//!   hash panics on its next gated operation, including in code that does not expect a panic. Under
+//!   hash panics on its next operation, including in code that does not expect a panic. Under
 //!   `panic = "abort"` that ends the process; under unwinding, code that catches the panic must not
 //!   treat the operation as having produced output.
-//! * **Known gap: an existing AES worker does not always stop.** The error-state check is in the
-//!   AES block operations only, so an operation that needs no new block still completes: a GCM or
-//!   GMAC worker can absorb data and produce or check its tag (`CIPH_K(J0)` and `H` are computed
-//!   at creation), and a CTR, CFB or GCM worker can use up to 15 bytes of keystream it has
-//!   already buffered.
 //! * **Known gap: `bouncycastle-ec` is not gated.** It is inside the boundary, and the methods of
 //!   its public `Curve` trait (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`,
 //!   `public_point`, `shamir_multiply`) reach key generation and the ECC CDH primitive with no

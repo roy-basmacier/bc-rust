@@ -287,6 +287,9 @@ where
     /// complete a segment left open by an earlier call, and the final short segment.
     #[inline]
     fn encrypt_bytes(&mut self, data: &mut [u8]) {
+        // The open segment's bytes are keystream from an earlier call; using them takes no block
+        // call, so a permutation that has stopped since is asked here.
+        self.perm.assert_operational();
         for byte in data.iter_mut() {
             self.refill_if_used_up();
             *byte ^= self.buf[self.used];
@@ -300,6 +303,8 @@ where
     /// back into the buffer.
     #[inline]
     fn decrypt_bytes(&mut self, data: &mut [u8]) {
+        // As in `encrypt_bytes`.
+        self.perm.assert_operational();
         for byte in data.iter_mut() {
             self.refill_if_used_up();
             // `I_{j+1} = C#_j` of the spec equations: the ciphertext segment is what is fed back.

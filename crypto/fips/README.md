@@ -88,9 +88,9 @@ the gate can be trusted to mean.
 * **`bouncycastle-aes`, `bouncycastle-sha2`** (`fips` feature): each holds its KAT vectors and a
   private status cell. `self_test()` runs the KAT; the gates refuse creation until `Passed`
   (AES: `SymmetricCipherError::SelfTestNotPassed`; SHA-2: a panic in the infallible `new()`,
-  `SuspendableError::SelfTestNotPassed` from `from_suspended`), and after a failure the gated
-  operations of an existing key, worker or hash panic. For AES those are the block operations
-  only, which leaves a gap (see [What is still missing](#what-is-still-missing)).
+  `SuspendableError::SelfTestNotPassed` from `from_suspended`), and after a failure every
+  operation on an existing key, worker or hash panics, including an AES mode's output that takes
+  no new block call (a GCM or GMAC tag, buffered keystream).
 * **`bouncycastle-fips`**: turns the features on and offers `power_on_self_tests()`,
   `run_self_tests()` and `self_test_status()`. It is excluded from the root workspace so that
   `cargo test --workspace` never runs gated.
@@ -135,7 +135,7 @@ of the PR branch before the squash merge.
 | B-4 | an overlapping power-on call returned an error; single-feature builds untested | **fixed**: waits and reports; scenarios run per feature | `f1375b29` |
 | B-5 | a match arm in `bouncycastle-fips` never tested | **gone**: the arm no longer exists | `b3f5ebf4` |
 | S-1 | services could be created during the first run | **fixed**: gate admits only `Passed`; KATs run ungated (decision 3) | `65860d9f` |
-| S-2 | only creation was gated | **mostly fixed**: existing keys, workers, hashes stop at their next gated operation (decision 5); an AES worker's operations that need no new block do not | `278f8eb7` |
+| S-2 | only creation was gated | **fixed**: existing keys, workers, hashes stop too (decision 5), an AES mode worker also where its output takes no new block call | `278f8eb7` |
 | S-3 | a failure mid-run made a KAT panic | **fixed**: KATs never pass through a gate | `65860d9f` |
 | S-4 | algorithm crates' own test suites fail with `fips` on | **open**, documented | — |
 | S-5 | HMAC, HKDF, DRBG usable with no CAST | **partly done**: HMAC-SHA-512 has a CAST (added with the integrity work); HKDF and the DRBG have none, documented | — |
@@ -228,10 +228,6 @@ Before a Security Level 1 validation (decision 9), at least:
   consistency tests are done; see [ECDSA and ECC CDH](#ecdsa-and-ecc-cdh));
 * entropy source health tests, the GCM IV rules (IG C.H), the security policy and CAVP
   certificates;
-* **stopping an existing AES worker completely**: the error-state check is in the AES block
-  operations only, so a GCM or GMAC worker can still absorb data and produce or check its tag
-  (`CIPH_K(J0)` and `H` are computed at creation), and a CTR, CFB or GCM worker can use up to 15
-  bytes of keystream it has already buffered;
 * **gating `bouncycastle-ec`**: it is inside the boundary, and its public `Curve` trait methods
   (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
   `shamir_multiply`) reach key generation and the ECC CDH primitive with no CAST and no PCT;

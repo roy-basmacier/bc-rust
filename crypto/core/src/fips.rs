@@ -297,7 +297,7 @@ pub fn enter_error_state(cause: SelfTestedAlgorithm) {
 /// The check a gated operation of a self-tested algorithm makes before it produces output, so that
 /// keys, workers and hashes that already exist stop when the module enters the error state (data
 /// output is inhibited in it: AS03.07, quoted in the `bouncycastle-fips` crate docs,
-/// "Requirements"; which operations are not gated is in its Security Considerations).
+/// "Requirements").
 ///
 /// # Panics
 /// If the module is in the error state, naming `algorithm` and the algorithm whose failure

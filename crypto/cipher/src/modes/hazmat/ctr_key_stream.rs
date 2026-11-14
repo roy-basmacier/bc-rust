@@ -147,6 +147,11 @@ where
             blocks,
         );
     }
+
+    /// The permutation's check: the keystream is its output.
+    fn assert_operational(&self) {
+        self.perm.assert_operational();
+    }
 }
 
 /// The toys the `tests/modes` integration tests use, shared with the unit tests below rather than

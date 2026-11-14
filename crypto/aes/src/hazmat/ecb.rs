@@ -248,8 +248,10 @@ pub type AES_ECB_256<'k, Dir, Pad> = <Dir as Direction>::Select<
 
 /// With the `fips` feature, panics once the module is in the FIPS 140-3 error state. Every block
 /// an AES key's modes encrypt or decrypt goes through one of the `BlockPermutation` methods below,
-/// each of which calls this first, so a key or worker made before a self-test failure stops with
-/// it. The self-test's own keys use `self_test::KatAES128`, which does not.
+/// each of which calls this first, and the modes call `BlockPermutation::assert_operational`,
+/// which is this too, before output that needs no new block (buffered keystream, a GCM or GMAC
+/// tag), so a key or worker made before a self-test failure stops with it. The self-test's own
+/// keys use `self_test::KatAES128`, which does not.
 #[inline(always)]
 fn assert_operational() {
     #[cfg(feature = "fips")]
@@ -291,6 +293,9 @@ impl BlockPermutation<AES_BLOCK_LEN> for AES128Internal {
         assert_operational();
         Self::decrypt_4blocks(self, blocks)
     }
+    fn assert_operational(&self) {
+        assert_operational();
+    }
 }
 
 impl KeyExpansion<24> for AES192Internal {
@@ -328,6 +333,9 @@ impl BlockPermutation<AES_BLOCK_LEN> for AES192Internal {
         assert_operational();
         Self::decrypt_4blocks(self, blocks)
     }
+    fn assert_operational(&self) {
+        assert_operational();
+    }
 }
 
 impl KeyExpansion<32> for AES256Internal {
@@ -364,6 +372,9 @@ impl BlockPermutation<AES_BLOCK_LEN> for AES256Internal {
     fn decrypt_4blocks(&self, blocks: &mut [Block; 4]) {
         assert_operational();
         Self::decrypt_4blocks(self, blocks)
+    }
+    fn assert_operational(&self) {
+        assert_operational();
     }
 }
 
