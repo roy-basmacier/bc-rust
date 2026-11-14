@@ -47,6 +47,7 @@ use bouncycastle::core::symmetric_key::{SymmetricDecryptionKey, SymmetricEncrypt
 use bouncycastle::core::traits::{StreamCipherDecryptor, StreamCipherEncryptor};
 
 // Every block cipher crate fixes the same CTR nonce length, so one command serves them all.
+#[cfg(not(bc_approved_only))]
 const _: () = assert!(
     CTR_NONCE_LEN == bouncycastle::aria::CTR_NONCE_LEN
         && CTR_NONCE_LEN == bouncycastle::camellia::CTR_NONCE_LEN

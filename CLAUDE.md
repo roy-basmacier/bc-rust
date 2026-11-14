@@ -99,6 +99,34 @@ module table, `module-hmac` and the toolchain record. `cargo test -p cli --featu
 `--features fips-validated`) builds the tool into the test's own target directory and runs every
 CLI test against an installed copy (`cli/tests/common/fips_install.rs`).
 
+### Approved-mode `bc-rust` (`cli-fips/`)
+
+`cli --features fips` is a *full* build with the self-tests (APPROVED_MODE.md, decision 4): the root workspace
+unifies `bouncycastle-ec/sm2` on, so it cannot also be `approved-only`. The approved-mode `bc-rust` is its own
+workspace, `cli-fips/`, excluded from the root one like `crypto/fips`. It builds a `bc-rust` binary from
+`bouncycastle-fips` with `approved-only` and `integrity`; only the subcommands of the approved services exist
+(AES modes, CMAC/GMAC, AES-KW/KWP, Ascon, SHA-2, SHA-3 family, HMAC-SHA-2/3, HKDF-SHA-2, ConcatKDF, X9.63 KDF,
+ECDSA and ECCDH on the seven approved curves, the Hash_DRBG `rng`); SM2/SM3/SM4, ARIA, Camellia, ChaCha20,
+Poly1305, BLAKE, ML-KEM, ML-DSA and the encoders are not offered. Power-on runs before any subcommand.
+
+```
+cargo build --release --manifest-path cli-fips/Cargo.toml
+cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
+cp cli-fips/target/release/bc-rust ./bc-rust-approved        # optional strip goes here, before the tool
+crypto/fips/target/release/bc-fips-install ./bc-rust-approved
+./bc-rust-approved fips-self-test                            # without the install step: exit 3, no command runs
+cargo test --manifest-path cli-fips/Cargo.toml               # incl. proof the build fails with SM2 on
+```
+
+How it reuses `cli/src`: `cli-fips/src/main.rs` compiles the command modules in by `#[path]`, against
+`cli-fips/facade`, a package whose library is named `bouncycastle` and re-exports only the boundary crates (the real
+umbrella depends on `bouncycastle-sm2`, which turns SM2 on). `ctr_cmd`, `hkdf_cmd` and `mac_cmd` also name
+non-boundary algorithms; those lines carry `#[cfg(not(bc_approved_only))]`, a cfg only `cli-fips/build.rs` sets. The
+clap enum and dispatch in `cli-fips/src/main.rs` are `cli/src/main.rs`'s, restricted to approved algorithms: **when
+you change an approved subcommand's flags or dispatch in `cli/src/main.rs`, change it in `cli-fips/src/main.rs`
+too.** SM2 is refused by `bouncycastle-fips`'s build script, not by this crate: the `refuse-test-sm2` feature exists
+only so the test can switch it on.
+
 Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
 the Rust build script):
 

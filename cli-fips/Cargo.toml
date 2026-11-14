@@ -1,0 +1,40 @@
+# An approved-mode `bc-rust`: its own workspace, excluded from the root one (see `exclude` there),
+# so that the features it turns on are never unified into the full build, and the full build's
+# `bouncycastle-ec/sm2` (turned on by `bouncycastle-sm2`, which the umbrella `bouncycastle` crate
+# and so the `cli` depend on) is never unified into this one. Build and test it with
+# `cargo test --manifest-path cli-fips/Cargo.toml`; see "Approved-mode `bc-rust`" in CLAUDE.md and
+# crypto/fips/APPROVED_MODE.md, decision 4.
+[package]
+name = "bc-rust-fips"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[features]
+# Switches `bouncycastle-ec/sm2` on, so that a test can prove the approved build refuses. Not a
+# configuration anyone can use: with it on, the build fails in bouncycastle-fips's build script.
+refuse-test-sm2 = ["dep:bouncycastle-ec", "bouncycastle-ec/sm2"]
+
+[dependencies]
+clap = { version = "4.5.51", features = ["derive"] }
+# The module, as an approved-only build with the software integrity test: power-on runs before
+# any subcommand, and the build fails if anything in the graph turns a non-approved feature on.
+bouncycastle-fips = { path = "../crypto/fips", features = ["approved-only", "integrity"] }
+# The crates of the module boundary under the names the shared `cli/src` modules use; see
+# facade/src/lib.rs.
+bouncycastle = { package = "bc-rust-approved-facade", path = "facade" }
+bouncycastle-utils = { path = "../crypto/utils" }
+bouncycastle-ec = { path = "../crypto/ec", default-features = false, optional = true }
+
+[[bin]]
+name = "bc-rust"
+path = "src/main.rs"
+
+[workspace]
+members = ["facade"]
+
+# The root manifest's profile, so that the binary is built as the full one is.
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

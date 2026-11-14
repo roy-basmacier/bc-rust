@@ -1,0 +1,30 @@
+# The `bouncycastle` umbrella crate, minus everything outside the FIPS module boundary. The
+# umbrella crate depends on `bouncycastle-sm2`, which turns on `bouncycastle-ec/sm2`, so it cannot
+# be part of an approved build. The `cli/src` modules that `cli-fips` shares name their library
+# `bouncycastle`; this crate is that library, so they compile unchanged.
+[package]
+name = "bc-rust-approved-facade"
+version = "0.1.4"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "bouncycastle"
+
+[dependencies]
+bouncycastle-aes = { path = "../../crypto/aes" }
+bouncycastle-ascon = { path = "../../crypto/ascon" }
+bouncycastle-cipher = { path = "../../crypto/cipher" }
+bouncycastle-concatkdf = { path = "../../crypto/concatkdf" }
+bouncycastle-core = { path = "../../crypto/core" }
+bouncycastle-eccdh = { path = "../../crypto/eccdh" }
+bouncycastle-ecdsa = { path = "../../crypto/ecdsa" }
+# An encoding helper, not a cryptographic service: the shared helpers print hex.
+bouncycastle-hex = { path = "../../crypto/hex" }
+bouncycastle-hkdf = { path = "../../crypto/hkdf" }
+bouncycastle-hmac = { path = "../../crypto/hmac" }
+bouncycastle-rng = { path = "../../crypto/rng" }
+bouncycastle-sha2 = { path = "../../crypto/sha2" }
+bouncycastle-sha3 = { path = "../../crypto/sha3" }
+bouncycastle-x963kdf = { path = "../../crypto/x963kdf" }
