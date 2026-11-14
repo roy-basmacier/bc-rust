@@ -9,7 +9,7 @@ use crate::ecdsa::EcdsaHash;
 use crate::keys_common::{DerivePublicKey, SignatureKeyPair};
 use bouncycastle_core::errors::SignatureError;
 use bouncycastle_core::traits::{RNG, SignaturePrivateKey, SignaturePublicKey};
-use bouncycastle_ec::curve::{Curve, SecretScalar, private_scalar_from_be_bytes};
+use bouncycastle_ec::curve::{Curve, GeneratedKeyPair, SecretScalar, private_scalar_from_be_bytes};
 use core::fmt;
 use core::fmt::{Debug, Display, Formatter};
 use core::marker::PhantomData;
@@ -154,7 +154,15 @@ pub fn keygen<C: Curve, H: EcdsaHash>(
 ) -> Result<(ECDSAPublicKey<C, H>, ECDSAPrivateKey<C, H>), SignatureError> {
     #[cfg(feature = "fips")]
     crate::self_test::require_passed()?;
-    let (d, (x, y)) = C::keygen_extra_bits(rng)?;
+    key_pair_from_generated(C::keygen_extra_bits(rng)?)
+}
+
+/// The second half of [`keygen`]: the generated `(d, Q)` as a key pair, which with the `fips`
+/// feature has passed its pair-wise consistency test. Separate so that a unit test can hand it a
+/// mismatched pair, which `keygen` itself never produces.
+pub(crate) fn key_pair_from_generated<C: Curve, H: EcdsaHash>(
+    (d, (x, y)): GeneratedKeyPair<C>,
+) -> Result<(ECDSAPublicKey<C, H>, ECDSAPrivateKey<C, H>), SignatureError> {
     let (pk, sk) =
         (ECDSAPublicKey { x, y, _hash: PhantomData }, ECDSAPrivateKey { d, _hash: PhantomData });
     #[cfg(feature = "fips")]

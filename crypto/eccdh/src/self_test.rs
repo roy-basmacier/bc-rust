@@ -203,7 +203,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use crate::keys::keygen;
+    use crate::keys::{key_pair_from_generated, keygen};
     use crate::keys_common::DerivePublicKey;
     use bouncycastle_core::agreement_key::AgreementKey;
     use bouncycastle_core::traits::KeyAgreement;
@@ -319,9 +319,11 @@ mod tests {
         self_test().unwrap();
         let (pk, _) = keygen::<P256>(&mut rng()).unwrap();
         let other = ECCDHPrivateKey::<P256>::from_bytes(&KAT.d).unwrap();
+        // `keygen`'s own second half, handed the new public point with another key's scalar:
+        // it fails only if it runs the pair-wise consistency test.
         assert_eq!(
-            pairwise_consistency_test(&pk, &other),
-            Err(KeyAgreementError::ConsistencyCheckFailed)
+            key_pair_from_generated::<P256>((other.scalar().clone(), (pk.x, pk.y))).err(),
+            Some(KeyAgreementError::ConsistencyCheckFailed)
         );
         assert_eq!(error_state(), Some(SelfTestedAlgorithm::ECC_CDH));
         assert_eq!(self_test_status(), SelfTestStatus::Failed);

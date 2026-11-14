@@ -397,7 +397,7 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use crate::keys::keygen;
+    use crate::keys::{key_pair_from_generated, keygen};
     use bouncycastle_core::signature_key::{DeterministicSigningKey, SigningKey, VerifyingKey};
     use bouncycastle_ec::P384;
     use bouncycastle_rng::HashDRBG_SHA512;
@@ -551,9 +551,11 @@ mod tests {
         let drbg = &mut HashDRBG_SHA512::new_from_os();
         let (pk, _) = keygen::<P256, SHA256>(drbg).unwrap();
         let other = P256Sk::from_bytes(&SIGGEN.d).unwrap();
+        // `keygen`'s own second half, handed the new public point with another key's scalar:
+        // it fails only if it runs the pair-wise consistency test.
         assert_eq!(
-            pairwise_consistency_test(&pk, &other),
-            Err(SignatureError::ConsistencyCheckFailed)
+            key_pair_from_generated::<P256, SHA256>((other.scalar().clone(), (pk.x, pk.y))).err(),
+            Some(SignatureError::ConsistencyCheckFailed)
         );
         assert_eq!(error_state(), Some(SelfTestedAlgorithm::ECDSA));
         assert_eq!(self_test_status(), SelfTestStatus::Failed);

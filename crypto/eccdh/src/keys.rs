@@ -4,7 +4,7 @@
 use crate::keys_common::{AgreementKeyPair, DerivePublicKey};
 use bouncycastle_core::errors::KeyAgreementError;
 use bouncycastle_core::traits::{KeyAgreementPrivateKey, KeyAgreementPublicKey, RNG};
-use bouncycastle_ec::curve::{Curve, SecretScalar, private_scalar_from_be_bytes};
+use bouncycastle_ec::curve::{Curve, GeneratedKeyPair, SecretScalar, private_scalar_from_be_bytes};
 use core::fmt;
 use core::fmt::{Debug, Display, Formatter};
 
@@ -134,7 +134,15 @@ pub fn keygen<C: Curve>(
 ) -> Result<(ECCDHPublicKey<C>, ECCDHPrivateKey<C>), KeyAgreementError> {
     #[cfg(feature = "fips")]
     crate::self_test::require_passed()?;
-    let (d, (x, y)) = C::keygen_extra_bits(rng)?;
+    key_pair_from_generated(C::keygen_extra_bits(rng)?)
+}
+
+/// The second half of [`keygen`]: the generated `(d, Q)` as a key pair, which with the `fips`
+/// feature has passed its pair-wise consistency test. Separate so that a unit test can hand it a
+/// mismatched pair, which `keygen` itself never produces.
+pub(crate) fn key_pair_from_generated<C: Curve>(
+    (d, (x, y)): GeneratedKeyPair<C>,
+) -> Result<(ECCDHPublicKey<C>, ECCDHPrivateKey<C>), KeyAgreementError> {
     let (pk, sk) = (ECCDHPublicKey { x, y }, ECCDHPrivateKey(d));
     #[cfg(feature = "fips")]
     crate::self_test::pairwise_consistency_test(&pk, &sk)?;
