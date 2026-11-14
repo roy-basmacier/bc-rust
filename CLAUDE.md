@@ -103,17 +103,27 @@ Independent check of the FIPS module's source HMACs (Python 3, standard library 
 the Rust build script):
 
 ```
-dev_scripts/fips_module_hmac.py crypto/aes crypto/core ...   # one directory per boundary crate
-dev_scripts/fips_module_hmac.py --list boundary.txt          # or one directory per line in a file
+dev_scripts/fips_module_hmac.py --lock crypto/fips/Cargo.lock crypto/aes crypto/core ...   # one dir per boundary crate
+dev_scripts/fips_module_hmac.py --lock crypto/fips/Cargo.lock --list boundary.txt          # or one dir per line in a file
 ```
 
 It prints `<package name> <hex>` per table entry in bytewise package-name order, then
-`module-hmac <hex>`; input order is irrelevant and CRLF checkouts give the same output as LF ones. The
+`module-hmac <hex>`, then `external <name> <version> <checksum>` per crate from crates.io in the
+boundary; input order is irrelevant and CRLF checkouts give the same output as LF ones. The
 definitions are in its docstring. Compare its output with the table the build embeds.
+`--lock` is required. It names the `Cargo.lock` of the build being checked: `crypto/fips/Cargo.lock`
+(committed, the one `Cargo.lock` that `.gitignore` lets through) for the module's own workspace,
+the root `Cargo.lock` for `bc-rust`, or a program's own. The external crates' rows come from it
+(crypto/fips/EXTERNAL_CRATES.md).
 
 The build side is `crypto/fips/build.rs` over the helper crate `bouncycastle-fips-build`
 (`crypto/fips/build-support`, a member of the fips workspace). Its `BOUNDARY` list and the
 boundary dependencies in `crypto/fips/Cargo.toml` must change together; the build fails otherwise.
+Moving an external crate's pin works the same way: `EXTERNAL_PINS` (with the new checksum) and
+the `=` requirement under `[target.'cfg(any())'.dependencies]` in `crypto/fips/Cargo.toml` change
+together, and so does the committed `crypto/fips/Cargo.lock`
+(`cargo update --manifest-path crypto/fips/Cargo.toml -p <crate> --precise <version>`), and then
+the expected module HMAC changes too.
 The helper must stay a separate crate: a direct build-dependency on `bouncycastle-sha2` would
 get `fips` from the `sha2` feature's `bouncycastle-sha2/fips`, and its SHA-512 would panic in the
 build script. Any edit to a boundary crate changes the module HMAC, so

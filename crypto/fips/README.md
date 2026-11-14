@@ -173,6 +173,10 @@ source HMACs, a module HMAC over their table, and a binary HMAC").
   `bc-rust fips-info` prints it; `dev_scripts/fips_module_hmac.py` recomputes it independently.
   With the `fips-validated` feature the build and power-on hold it to
   `src/expected_module_hmac.rs`.
+* **External crates.** `getrandom`, `cfg-if`, `libc` and `r-efi`, which `bouncycastle-rng` brings
+  in, are table rows of their name, version and crates.io checksum. `=` requirements in
+  `Cargo.toml` fix the versions, and the script checks the checksums against a build's
+  `Cargo.lock`. Rule and reasoning: [`EXTERNAL_CRATES.md`](EXTERNAL_CRATES.md).
 * **Software integrity test (binary HMAC).** With the `integrity` feature, power-on HMACs the
   program's own read-only ELF segments and compares the result with a slot that
   `bc-fips-install/` writes after linking (after `strip`, before signing). An unwritten slot fails.
@@ -186,8 +190,7 @@ source HMACs, a module HMAC over their table, and a binary HMAC").
 
 Before a Security Level 1 validation (decision 9), at least:
 
-* a software integrity test on non-ELF targets (Mach-O, PE), and a rule for the external crates
-  the boundary pulls in (`getrandom`, `cfg-if`, `libc`), which the source pin does not cover;
+* a software integrity test on non-ELF targets (Mach-O, PE);
 * an approved **service indicator**, since bc-rust also ships non-approved algorithms (SM3, SM4,
   ARIA, Camellia);
 * **CASTs for every other approved algorithm** in the boundary: ascon, SHA-3 and SHAKE, ECDSA,

@@ -63,9 +63,11 @@ file that crates.io serves for that version, which is immutable once published.
    an `=` version from crates.io implies the checksum. Three cases break that: `[patch]`, source
    replacement, and another registry. All of them show only in the build's `Cargo.lock`, as a
    different `source`, a missing `checksum` or a different one. `dev_scripts/fips_module_hmac.py`
-   takes that lock with `--lock`. It derives the external rows from the lock, not from the pins:
-   it walks the closure of the boundary crates over the lock's dependency lists, and refuses any
-   package in it that is neither a boundary crate nor a crates.io package with a checksum. Its
+   takes that lock with `--lock`. It derives the external rows from the lock, not from the pins.
+   It takes each boundary crate's normal dependencies from its `Cargo.toml`, because a workspace
+   member's lock entry lists its dev-dependencies too. It resolves them to versions through the
+   lock and follows the lock's dependency lists from there. Any package it reaches that is neither
+   a boundary crate nor a crates.io package with a checksum is refused. Its
    module HMAC then equals the published one only if the program was built from the pinned
    versions and checksums. The script stays independent of the Rust code: nothing in it comes
    from `EXTERNAL_PINS`.
