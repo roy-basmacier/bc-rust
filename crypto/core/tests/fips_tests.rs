@@ -102,7 +102,9 @@ fn algorithms_run_hashes_first_and_have_their_ig_names() {
             SelfTestedAlgorithm::HMAC_SHA512,
             SelfTestedAlgorithm::SoftwareIntegrity,
             SelfTestedAlgorithm::ModuleIntegrity,
-            SelfTestedAlgorithm::AES
+            SelfTestedAlgorithm::AES,
+            SelfTestedAlgorithm::ECDSA,
+            SelfTestedAlgorithm::ECC_CDH
         ]
     );
     assert_eq!(SelfTestedAlgorithm::AES.name(), "AES");
@@ -111,6 +113,8 @@ fn algorithms_run_hashes_first_and_have_their_ig_names() {
     assert_eq!(SelfTestedAlgorithm::HMAC_SHA512.name(), "HMAC-SHA-512");
     assert_eq!(SelfTestedAlgorithm::SoftwareIntegrity.name(), "software integrity");
     assert_eq!(SelfTestedAlgorithm::ModuleIntegrity.name(), "module integrity");
+    assert_eq!(SelfTestedAlgorithm::ECDSA.name(), "ECDSA");
+    assert_eq!(SelfTestedAlgorithm::ECC_CDH.name(), "ECC CDH");
 }
 
 #[test]

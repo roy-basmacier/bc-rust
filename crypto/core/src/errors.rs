@@ -102,6 +102,14 @@ pub enum KeyAgreementError {
     RNGError(RNGError),
     /// The KDF an algorithm derives its output through refused the derivation.
     KDFError(KDFError),
+    /// A freshly generated key pair failed its pair-wise consistency test: the public key is not
+    /// `[d]G` for the private key. The module is then in the FIPS 140-3 error state.
+    #[cfg(feature = "fips")]
+    ConsistencyCheckFailed,
+    /// The algorithm's FIPS 140-3 self-test has not passed, so it may not be used; the status says
+    /// whether it has not been run yet or has failed.
+    #[cfg(feature = "fips")]
+    SelfTestNotPassed(crate::fips::SelfTestStatus),
 }
 
 ///
@@ -184,6 +192,10 @@ pub enum SignatureError {
     SignatureVerificationFailed,
     ///
     RNGError(RNGError),
+    /// The algorithm's FIPS 140-3 self-test has not passed, so it may not be used; the status says
+    /// whether it has not been run yet or has failed.
+    #[cfg(feature = "fips")]
+    SelfTestNotPassed(crate::fips::SelfTestStatus),
 }
 
 ///
