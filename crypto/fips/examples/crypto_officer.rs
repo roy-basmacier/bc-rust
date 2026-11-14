@@ -9,8 +9,9 @@
 //!    program stops.
 //! 3. **Use the services**, here an AES-GCM key and a SHA-256 hash, as usual.
 //! 4. **Re-run on demand** with `run_self_tests()` (the periodic self-test of a Security Level 1
-//!    module, FIPS 140-3 IG 10.3.E); services stay usable while it runs. Restarting the program is
-//!    the other way to re-run them.
+//!    module, FIPS 140-3 IG 10.3.E); it repeats the algorithm self-tests (CASTs), and services
+//!    stay usable while it runs. Restarting the program is the other way to re-run them, and the
+//!    only one that repeats the integrity tests.
 //!
 //! It first shows what an application that skips step 2 sees. This is a self-test prototype for
 //! AES, SHA-2, ECDSA and ECC CDH, not a validated module.

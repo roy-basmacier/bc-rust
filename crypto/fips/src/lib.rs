@@ -117,8 +117,9 @@
 //! assert_eq!(self_test_status(SelfTestedAlgorithm::AES), SelfTestStatus::Passed);
 //! ```
 //!
-//! Then use the algorithms as usual. Re-run the self-tests on demand -- the periodic self-test of
-//! IG 10.3.E -- and report each algorithm's status; services stay usable while it runs:
+//! Then use the algorithms as usual. Re-run the CASTs on demand -- the periodic self-test of
+//! IG 10.3.E -- and report each algorithm's status; services stay usable while it runs (the
+//! integrity tests are repeated by restarting, not here):
 //!
 //! ```
 //! use bouncycastle_fips::{power_on_self_tests, run_self_tests, self_test_status, SELF_TESTED};
@@ -209,10 +210,13 @@
 //!   service, resetting, rebooting or power cycling" are acceptable triggers; Levels 3 and 4
 //!   must re-run automatically on a defined period [10.54]. A repeated CAST "may be run in the
 //!   background without the need for inhibiting data output, unlike pre-operational self-tests
-//!   which are explicitly included in [AS03.07] and [AS10.03]" (IG 10.3.E Resolution 5). That
-//!   covers the CAST re-runs only: with the `integrity` feature [`run_self_tests`] also re-runs
-//!   the software integrity test, a pre-operational self-test, without inhibiting output. That is
-//!   an open point for a validation.
+//!   which are explicitly included in [AS03.07] and [AS10.03]" (IG 10.3.E Resolution 5). The
+//!   vendor chooses which category is repeated: "It is acceptable for the cryptographic module
+//!   vendor to choose which category of self-tests gets invoked periodically and it is not
+//!   required that both sets of self-tests be covered by this requirement" (Resolution 4). So
+//!   [`run_self_tests`] repeats the CASTs only, with services available; the software integrity
+//!   test and the module integrity check, pre-operational self-tests, are repeated by restarting
+//!   the program, which runs them before any service is available.
 //! * A service that performs on-demand self-tests needs an approved service indicator; re-running
 //!   by restart does not (IG 2.4.C).
 //!
@@ -500,6 +504,10 @@ struct Crate {
     /// The algorithms its one `self_test` covers.
     algorithms: &'static [SelfTestedAlgorithm],
     self_test: fn() -> Result<(), SelfTestError>,
+    /// A pre-operational self-test (the software integrity test, the module integrity check)
+    /// rather than a CAST: [`run_self_tests`] does not repeat it once it has passed (see
+    /// [`skip`]).
+    pre_operational: bool,
 }
 
 /// The enabled crates, in the order of [`SELF_TESTED`].
@@ -508,28 +516,47 @@ const CRATES: &[Crate] = &[
     Crate {
         algorithms: &[SelfTestedAlgorithm::SHA256, SelfTestedAlgorithm::SHA512],
         self_test: sha2::self_test,
+        pre_operational: false,
     },
     #[cfg(feature = "sha2")]
-    Crate { algorithms: &[SelfTestedAlgorithm::HMAC_SHA512], self_test: hmac_self_test::self_test },
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::HMAC_SHA512],
+        self_test: hmac_self_test::self_test,
+        pre_operational: false,
+    },
     // The integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1
     // [10.20]); it runs before the remaining self-tests. The module HMAC goes after it.
     #[cfg(feature = "integrity")]
     Crate {
         algorithms: &[SelfTestedAlgorithm::SoftwareIntegrity],
         self_test: integrity::self_test,
+        pre_operational: true,
     },
     #[cfg(feature = "fips-validated")]
     Crate {
         algorithms: &[SelfTestedAlgorithm::ModuleIntegrity],
         self_test: module_table::validated::self_test,
+        pre_operational: true,
     },
     #[cfg(feature = "aes")]
-    Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::AES],
+        self_test: aes::self_test,
+        pre_operational: false,
+    },
     // ECDSA hashes with SHA-256, which has passed by now.
     #[cfg(feature = "ecdsa")]
-    Crate { algorithms: &[SelfTestedAlgorithm::ECDSA], self_test: ecdsa::self_test },
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::ECDSA],
+        self_test: ecdsa::self_test,
+        pre_operational: false,
+    },
     #[cfg(feature = "eccdh")]
-    Crate { algorithms: &[SelfTestedAlgorithm::ECC_CDH], self_test: eccdh::self_test },
+    Crate {
+        algorithms: &[SelfTestedAlgorithm::ECC_CDH],
+        self_test: eccdh::self_test,
+        pre_operational: false,
+    },
 ];
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] that has not passed yet. Call once at
@@ -547,10 +574,12 @@ pub fn power_on_self_tests() -> Result<(), SelfTestError> {
     run(true)
 }
 
-/// Runs the self-test of every algorithm in [`SELF_TESTED`] again, whether or not it passed
-/// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E). Services stay available
-/// while it runs, the software integrity test included; see the crate docs' Requirements for what
-/// IG 10.3.E Resolution 5 does and does not cover. It cannot clear a failure; only a restart does.
+/// Runs every cryptographic algorithm self-test (CAST) in [`SELF_TESTED`] again, whether or not
+/// it passed before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E). Services stay
+/// available while it runs (IG 10.3.E Resolution 5). The pre-operational self-tests, the software
+/// integrity test and the module integrity check, run only if they have not passed yet: their
+/// periodic re-run is restarting the program. See the crate docs' Requirements for why. It cannot
+/// clear a failure; only a restart does.
 ///
 /// # Errors
 ///
@@ -591,13 +620,58 @@ fn run(skip_passed: bool) -> Result<(), SelfTestError> {
         return Err(SelfTestError::NotPassed(failed, SelfTestStatus::Failed));
     }
     for c in CRATES {
-        if skip_passed
-            && c.algorithms.iter().all(|a| self_test_status(*a) == SelfTestStatus::Passed)
-        {
+        let passed = c.algorithms.iter().all(|a| self_test_status(*a) == SelfTestStatus::Passed);
+        if skip(skip_passed, c.pre_operational, passed) {
             continue;
         }
         // A failing self-test enters the module error state itself, which stops every crate.
         (c.self_test)()?;
     }
     Ok(())
+}
+
+/// Whether [`run`] leaves out a self-test whose algorithms have all `passed`: always at power-on
+/// (`skip_passed`), and in the on-demand run when it is `pre_operational`. A pre-operational
+/// self-test re-run with services available would not inhibit data output, which IG 10.3.E
+/// Resolution 5 allows only for CASTs; one that has not passed runs either way, so calling
+/// [`run_self_tests`] first is still a full power-on.
+fn skip(skip_passed: bool, pre_operational: bool, passed: bool) -> bool {
+    passed && (skip_passed || pre_operational)
+}
+
+// `skip` and the `pre_operational` marks are not observable through the public API: a re-run of
+// a passed self-test leaves its status `Passed` throughout, and a test binary cannot pass the
+// software integrity test.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn power_on_skips_every_passed_self_test() {
+        assert!(skip(true, false, true));
+        assert!(skip(true, true, true));
+        assert!(!skip(true, false, false));
+        assert!(!skip(true, true, false));
+    }
+
+    #[test]
+    fn on_demand_repeats_casts_and_not_a_passed_pre_operational_self_test() {
+        assert!(!skip(false, false, true));
+        assert!(skip(false, true, true));
+        assert!(!skip(false, false, false));
+        assert!(!skip(false, true, false));
+    }
+
+    #[test]
+    fn only_the_integrity_tests_are_pre_operational() {
+        for c in CRATES {
+            let integrity = c.algorithms.iter().any(|a| {
+                matches!(
+                    a,
+                    SelfTestedAlgorithm::SoftwareIntegrity | SelfTestedAlgorithm::ModuleIntegrity
+                )
+            });
+            assert_eq!(c.pre_operational, integrity, "{:?}", c.algorithms);
+        }
+    }
 }

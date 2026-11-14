@@ -36,8 +36,8 @@ pub fn power_on(simulate_failure: bool) {
     }
 }
 
-/// `fips-self-test`: runs every self-test again and prints one `<algorithm>: <status>` line per
-/// self-tested algorithm on stdout. Exits with [`SELF_TEST_FAILED`] if any fails.
+/// `fips-self-test`: runs every CAST again (the integrity tests ran at this process's power-on)
+/// and prints one `<algorithm>: <status>` line per self-tested algorithm on stdout. Exits with [`SELF_TEST_FAILED`] if any fails.
 pub fn fips_self_test_cmd() {
     let result = run_self_tests();
     for algorithm in SELF_TESTED {

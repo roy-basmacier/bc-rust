@@ -5759,9 +5759,9 @@ enum Subcommands {
         /// Output in hex format.
         x: bool,
     },
-    /// Runs the FIPS 140-3 self-tests again and prints each one's status, one
-    /// `<algorithm>: <status>` line each; exits with status 3 if any fails. Every invocation
-    /// already runs them once at startup. Only with the `fips` feature.
+    /// Runs the FIPS 140-3 algorithm self-tests (CASTs) again and prints each self-test's
+    /// status, one `<algorithm>: <status>` line each; exits with status 3 if any fails. Every
+    /// invocation already runs them, and the integrity tests, once at startup. Only with the `fips` feature.
     #[cfg(feature = "fips")]
     FipsSelfTest,
     /// Prints the FIPS module table (one `<package> <HMAC>` line per crate of the module), the

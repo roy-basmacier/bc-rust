@@ -97,7 +97,7 @@ the gate can be trusted to mean.
 * **`bc-rust` CLI** (`fips` feature): every invocation that reaches a subcommand runs the
   power-on self-tests first and exits with status 3 if they fail (`--help`, `--version` and
   usage errors exit from argument parsing, before power-on and before any cryptographic
-  service); `bc-rust fips-self-test` re-runs them and prints each algorithm's status, and
+  service); `bc-rust fips-self-test` re-runs the CASTs and prints each algorithm's status, and
   `bc-rust fips-info` prints the module table. Without the feature the CLI is unchanged. The
   approved-mode build is a separate binary, `cli-fips/`.
 
@@ -112,7 +112,7 @@ fn main() {
         std::process::exit(1);
     }
     // ... create AES keys and SHA-2 hashes as usual ...
-    run_self_tests().expect("periodic self-test"); // on demand; services stay usable
+    run_self_tests().expect("periodic self-test"); // CASTs, on demand; services stay usable
 }
 ```
 
@@ -235,8 +235,6 @@ Before a Security Level 1 validation (decision 9), at least:
 * **gating `bouncycastle-ec`**: it is inside the boundary, and its public `Curve` trait methods
   (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
   `shamir_multiply`) reach key generation and the ECC CDH primitive with no CAST and no PCT;
-* inhibiting output while `run_self_tests` re-runs the software integrity test (IG 10.3.E
-  Resolution 5 exempts only the CAST re-runs; see the crate docs' Requirements section);
 * a module HMAC for the crates as published: `cargo package` rewrites `Cargo.toml`, which the
   per-crate source HMAC covers, so a crates.io package gives a different value from a checkout.
 
