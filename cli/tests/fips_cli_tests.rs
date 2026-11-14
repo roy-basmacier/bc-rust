@@ -144,9 +144,10 @@ mod fips {
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 
-    /// `fips-info` prints the module table, the module HMAC and the toolchain record that the
-    /// library embeds, and its table and module HMAC are what the independent script computes
-    /// over this checkout. Skipped, with a notice, where there is no `python3`.
+    /// `fips-info` prints the module table, the module HMAC, the external crates and the
+    /// toolchain record that the library embeds, and all but the record are what the independent
+    /// script computes over this checkout and the workspace's `Cargo.lock`, which built this
+    /// `bc-rust`. Skipped, with a notice, where there is no `python3`.
     #[test]
     fn fips_info_agrees_with_the_library_and_the_independent_script() {
         let out = run(&["fips-info"], b"");
@@ -156,13 +157,17 @@ mod fips {
 
         // The table this process embeds, which needs no self-test to read.
         let table = bouncycastle_fips::module_table();
+        let external = bouncycastle_fips::external_crates();
         let lines: Vec<&str> = pin.lines().collect();
-        assert_eq!(lines.len(), table.len() + 1);
+        assert_eq!(lines.len(), table.len() + 1 + external.len());
         for (line, entry) in lines.iter().zip(table) {
             assert_eq!(*line, format!("{} {}", entry.package, hex(&entry.hmac)));
         }
         let module = lines[table.len()].strip_prefix("module-hmac ").expect("module-hmac line");
         assert_eq!(module.len(), 128);
+        for (line, e) in lines[table.len() + 1..].iter().zip(external) {
+            assert_eq!(*line, format!("external {} {} {}", e.package, e.version, hex(&e.checksum)));
+        }
 
         let t = bouncycastle_fips::toolchain();
         let features: String = t.features.iter().map(|f| format!(" {f}")).collect();
@@ -178,7 +183,8 @@ mod fips {
 
         let mut cmd = Command::new("python3");
         cmd.arg("-I").arg(repo().join("dev_scripts/fips_module_hmac.py"));
-        for entry in table {
+        cmd.arg("--lock").arg(repo().join("Cargo.lock"));
+        for entry in table.iter().filter(|e| e.package.starts_with("bouncycastle-")) {
             let name = entry.package.strip_prefix("bouncycastle-").unwrap();
             cmd.arg(repo().join("crypto").join(name));
         }

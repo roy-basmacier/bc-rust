@@ -1,5 +1,5 @@
-//! The module's source pin, as the build embedded it: the table of per-crate source HMACs, the
-//! toolchain record, and the module HMAC recomputed from the table.
+//! The module's source pin, as the build embedded it: the table of per-crate source HMACs and
+//! pinned external crates, the toolchain record, and the module HMAC recomputed from the table.
 //!
 //! The build script (`build.rs`, with `bouncycastle-fips-build`) writes the table and the record;
 //! [`module_hmac`] recomputes the module HMAC here with its own copy of the encoding, so a table
@@ -22,14 +22,32 @@ pub const MODULE_HMAC_LEN: usize = 64;
 /// are a fingerprint of the sources that anyone can recompute.
 pub const MODULE_HMAC_KEY: &[u8; 41] = b"Legion of the Bouncy Castle FIPS Rust API";
 
-/// One entry of the module table: a crate inside the module boundary and the HMAC-SHA-512 of its
-/// sources.
+/// One entry of the module table: a crate inside the module boundary and the HMAC-SHA-512 that
+/// pins it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModuleTableEntry {
-    /// The crate's full package name, e.g. `bouncycastle-aes`.
+    /// The crate's full package name, e.g. `bouncycastle-aes` or `getrandom`.
     pub package: &'static str,
-    /// HMAC-SHA-512 under [`MODULE_HMAC_KEY`] of the crate's `src/`, `Cargo.toml` and `build.rs`.
+    /// HMAC-SHA-512 under [`MODULE_HMAC_KEY`]. For a crate of this project, over its `src/`,
+    /// `Cargo.toml` and `build.rs`; for one of the [`external_crates`], over its name, a zero
+    /// byte, its version, a zero byte and its 32 checksum bytes.
     pub hmac: [u8; MODULE_HMAC_LEN],
+}
+
+/// The length of a registry checksum: SHA-256's output.
+pub const CHECKSUM_LEN: usize = 32;
+
+/// A crate from crates.io inside the module boundary, as pinned: `bouncycastle-fips`'s
+/// `Cargo.toml` asks for exactly this version, and the program's `Cargo.lock` is to show this
+/// checksum (crypto/fips/EXTERNAL_CRATES.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExternalCrate {
+    /// The package name, e.g. `getrandom`.
+    pub package: &'static str,
+    /// The exact version.
+    pub version: &'static str,
+    /// The `checksum` of the package in `Cargo.lock`: the SHA-256 of its `.crate` file.
+    pub checksum: [u8; CHECKSUM_LEN],
 }
 
 /// The toolchain and settings that built this copy of the module, recorded beside the table.
@@ -69,14 +87,20 @@ pub struct CrateFeatures {
     pub features: &'static [&'static str],
 }
 
-// TABLE and TOOLCHAIN, written by build.rs.
+// TABLE, TOOLCHAIN and EXTERNAL, written by build.rs.
 include!(concat!(env!("OUT_DIR"), "/module_table.rs"));
 
-/// The module table: every crate inside the module boundary with its source HMAC, ordered
-/// bytewise by package name. The same in every program built from the same sources, whatever
-/// else the program links.
+/// The module table: every crate inside the module boundary with its source HMAC, and every one
+/// of the [`external_crates`] with the HMAC of its pin, ordered bytewise by package name. The same
+/// in every program built from the same sources, whatever else the program links.
 pub fn module_table() -> &'static [ModuleTableEntry] {
     &TABLE
+}
+
+/// The crates from crates.io inside the module boundary, with the versions and checksums that
+/// their rows of [`module_table`] pin, ordered bytewise by package name.
+pub fn external_crates() -> &'static [ExternalCrate] {
+    &EXTERNAL
 }
 
 /// The toolchain and settings that built this copy of the module.
@@ -102,8 +126,8 @@ pub fn module_hmac() -> Result<[u8; MODULE_HMAC_LEN], SelfTestError> {
     Ok(module_hmac_of(&TABLE))
 }
 
-/// What an operator compares with the Security Policy: the module table, the module HMAC and the
-/// toolchain record, from [`module_info`].
+/// What an operator compares with the Security Policy: the module table, the module HMAC, the
+/// external crates and the toolchain record, from [`module_info`].
 ///
 /// Its [`Display`](core::fmt::Display) form is what `bc-rust fips-info` prints, one item per
 /// line, hex in lowercase:
@@ -111,6 +135,7 @@ pub fn module_hmac() -> Result<[u8; MODULE_HMAC_LEN], SelfTestError> {
 /// ```text
 /// <package name> <128 hex digits>        one line per table entry, in table order
 /// module-hmac <128 hex digits>
+/// external <package> <version> <64 hex digits>   one line per external crate, in table order
 /// toolchain.rustc <rustc>
 /// toolchain.host <host>
 /// toolchain.target <target>
@@ -119,24 +144,32 @@ pub fn module_hmac() -> Result<[u8; MODULE_HMAC_LEN], SelfTestError> {
 /// toolchain.features[ <feature>]...
 /// ```
 ///
-/// The lines up to and including `module-hmac` are exactly what `dev_scripts/fips_module_hmac.py`
-/// prints over the same sources.
+/// The lines before the toolchain record are exactly what `dev_scripts/fips_module_hmac.py`
+/// prints over the same sources and the `Cargo.lock` of the build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModuleInfo {
     /// [`module_table`].
     pub table: &'static [ModuleTableEntry],
     /// [`module_hmac`], recomputed from [`ModuleInfo::table`].
     pub module_hmac: [u8; MODULE_HMAC_LEN],
+    /// [`external_crates`].
+    pub external: &'static [ExternalCrate],
     /// [`toolchain`].
     pub toolchain: &'static ToolchainRecord,
 }
 
-/// The module table, the module HMAC and the toolchain record together, to print.
+/// The module table, the module HMAC, the external crates and the toolchain record together, to
+/// print.
 ///
 /// # Errors
 /// As [`module_hmac`].
 pub fn module_info() -> Result<ModuleInfo, SelfTestError> {
-    Ok(ModuleInfo { table: module_table(), module_hmac: module_hmac()?, toolchain: toolchain() })
+    Ok(ModuleInfo {
+        table: module_table(),
+        module_hmac: module_hmac()?,
+        external: external_crates(),
+        toolchain: toolchain(),
+    })
 }
 
 impl core::fmt::Display for ModuleInfo {
@@ -154,6 +187,10 @@ impl core::fmt::Display for ModuleInfo {
         }
         f.write_str("module-hmac ")?;
         hex_line(f, &self.module_hmac)?;
+        for e in self.external {
+            write!(f, "external {} {} ", e.package, e.version)?;
+            hex_line(f, &e.checksum)?;
+        }
         let t = self.toolchain;
         writeln!(f, "toolchain.rustc {}", t.rustc)?;
         writeln!(f, "toolchain.host {}", t.host)?;

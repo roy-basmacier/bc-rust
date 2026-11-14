@@ -5765,8 +5765,9 @@ enum Subcommands {
     #[cfg(feature = "fips")]
     FipsSelfTest,
     /// Prints the FIPS module table (one `<package> <HMAC>` line per crate of the module), the
-    /// `module-hmac` line and the toolchain record, for comparison with the Security Policy and
-    /// with dev_scripts/fips_module_hmac.py. Only with the `fips` feature.
+    /// `module-hmac` line, one `external <package> <version> <checksum>` line per crate from
+    /// crates.io in the module, and the toolchain record, for comparison with the Security Policy
+    /// and with dev_scripts/fips_module_hmac.py. Only with the `fips` feature.
     #[cfg(feature = "fips")]
     FipsInfo,
 }

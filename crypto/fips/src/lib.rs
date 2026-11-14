@@ -64,6 +64,14 @@
 //! validated version publishes in its Security Policy, and anyone can recompute it from a
 //! checkout with `dev_scripts/fips_module_hmac.py`.
 //!
+//! The table also has a row for each crate from crates.io inside the boundary (`getrandom`,
+//! `cfg-if`, `libc`, `r-efi`), made from its pinned name, version and registry checksum
+//! ([`external_crates`]). This crate's `Cargo.toml` asks for those versions with `=`, so a
+//! program that uses the module resolves to exactly them or does not build. A `[patch]` or a
+//! replaced source can keep the version and change the contents, and only the program's
+//! `Cargo.lock` shows that. The independent script checks the lock (`--lock`); see
+//! crypto/fips/EXTERNAL_CRATES.md.
+//!
 //! With the `fips-validated` feature, the build fails unless the module HMAC equals the published
 //! constant compiled into this crate, and power-on checks it again (the module integrity check).
 //! Without it, nothing is compared. **No version is validated yet**: the constant is the module
@@ -335,8 +343,9 @@ mod integrity;
 mod module_table;
 
 pub use module_table::{
-    CrateFeatures, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleInfo, ModuleTableEntry, ToolchainRecord,
-    module_hmac, module_info, module_table, toolchain,
+    CHECKSUM_LEN, CrateFeatures, ExternalCrate, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleInfo,
+    ModuleTableEntry, ToolchainRecord, external_crates, module_hmac, module_info, module_table,
+    toolchain,
 };
 
 // The boundary crates this crate does not call. They are dependencies so that build.rs receives

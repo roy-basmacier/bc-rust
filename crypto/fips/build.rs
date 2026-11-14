@@ -8,6 +8,11 @@
 //! `fips-validated` feature, a module HMAC other than the published constant in
 //! `src/expected_module_hmac.rs` fails the build.
 //!
+//! The table also holds a row for each crate from crates.io inside the boundary (`getrandom` and
+//! what it brings), from its pinned name, version and registry checksum. No build script can see
+//! the lock file in use, so the version is fixed by `=` requirements in this crate's
+//! `Cargo.toml`, which this script holds to the pins; see crypto/fips/EXTERNAL_CRATES.md.
+//!
 //! Each boundary crate also hands over its enabled cargo features, as
 //! `DEP_BOUNCYCASTLE_<NAME>_FEATURES`; they go into the toolchain record. With the
 //! `approved-only` feature, a non-approved one (`bouncycastle-ec`'s `sm2`) fails the build. Cargo
@@ -33,6 +38,15 @@ use source_pin::{BoundaryCrate, CrateFeatures, Toolchain};
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/expected_module_hmac.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
+    // The `=` requirements that fix the external crates' versions; see EXTERNAL_PINS.
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets it"));
+    let own = fs::read_to_string(manifest_dir.join("Cargo.toml"))
+        .unwrap_or_else(|e| fail(&format!("reading Cargo.toml: {e}")));
+    let own = source_pin::parse_manifest(&own)
+        .unwrap_or_else(|e| fail(&format!("bouncycastle-fips's Cargo.toml: {e}")));
+    source_pin::check_pins(&own).unwrap_or_else(|e| fail(&e));
 
     let mut crates = Vec::new();
     let mut crate_features: Vec<CrateFeatures> = Vec::new();
