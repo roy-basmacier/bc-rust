@@ -1,7 +1,8 @@
 //! End to end, over two programs that link different subsets of the module (`tests/consumers`:
 //! one uses AES only, the other every crate of the module): each is built in release, installed
 //! with the tool, and run. Both must embed the same module table and module HMAC, equal to what
-//! the independent `dev_scripts/fips_module_hmac.py` computes over this checkout; both must pass
+//! the independent `dev_scripts/fips_module_hmac.py` computes over this checkout and the
+//! consumers' own `Cargo.lock`; both must pass
 //! the binary HMAC; and each must refuse to run with its slot empty or one byte changed.
 
 use std::fs;
@@ -10,7 +11,7 @@ use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 use bouncycastle_fips::binary_hmac::{SLOT_LEN, SLOT_MAGIC, find_slot, read_only_segments};
-use bouncycastle_fips::module_table;
+use bouncycastle_fips::{external_crates, module_table};
 
 /// What a consumer prints when its integrity test fails.
 const INTEGRITY_FAILED: &str = "power-on failed: KnownAnswerMismatch(SoftwareIntegrity)";
@@ -138,19 +139,26 @@ fn both_programs_embed_the_same_table_and_module_hmac_as_the_independent_script(
         "{everything_info}"
     );
 
-    // The table is this crate's, entry by entry, then the module HMAC.
+    // The table is this crate's, entry by entry, then the module HMAC, then the external crates.
     let table = module_table();
+    let external = external_crates();
     let lines: Vec<&str> = pin.lines().collect();
-    assert_eq!(lines.len(), table.len() + 1);
+    assert_eq!(lines.len(), table.len() + 1 + external.len());
     for (line, entry) in lines.iter().zip(table) {
         assert_eq!(*line, format!("{} {}", entry.package, hex(&entry.hmac)));
     }
     assert!(lines[table.len()].starts_with("module-hmac "));
+    for (line, e) in lines[table.len() + 1..].iter().zip(external) {
+        assert_eq!(*line, format!("external {} {} {}", e.package, e.version, hex(&e.checksum)));
+    }
 
-    // And it is what the independent script computes over the boundary crates of this checkout.
+    // And it is what the independent script computes over the boundary crates of this checkout
+    // and the lock file the two programs were built with, which `consumer_program` has made.
+    let lock = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/consumers/Cargo.lock");
     let mut cmd = Command::new("python3");
     cmd.arg("-I").arg(crypto_dir().join("../dev_scripts/fips_module_hmac.py"));
-    for entry in table {
+    cmd.arg("--lock").arg(lock);
+    for entry in table.iter().filter(|e| e.package.starts_with("bouncycastle-")) {
         cmd.arg(crypto_dir().join(entry.package.strip_prefix("bouncycastle-").unwrap()));
     }
     let script = match cmd.output() {

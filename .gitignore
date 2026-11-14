@@ -1,4 +1,7 @@
 Cargo.lock
+# The module's own workspace: its lock is the reference for the pinned external crates
+# (crypto/fips/EXTERNAL_CRATES.md).
+!crypto/fips/Cargo.lock
 **/target
 mutants.out*/
 custom_mutants_output/

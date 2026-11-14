@@ -97,10 +97,129 @@ pub const BOUNDARY: [&str; 15] = [
     "bouncycastle-sha3", "bouncycastle-utils", "bouncycastle-x963kdf",
 ];
 
-/// The crates outside this project that a boundary crate may depend on directly. They carry no
-/// `links` key or build script of ours, so they are outside the per-crate hashing for now
-/// (decided 2026-11-12); `getrandom` brings `cfg-if` and `libc`, which no boundary crate names.
-pub const EXTERNAL: [&str; 1] = ["getrandom"];
+/// One crate from crates.io inside the module boundary, pinned by version and registry checksum
+/// (crypto/fips/EXTERNAL_CRATES.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExternalPin {
+    /// The package name.
+    pub name: &'static str,
+    /// The exact version. `bouncycastle-fips`'s `Cargo.toml` asks for it with `=`, which
+    /// [`check_pins`] holds to this value.
+    pub version: &'static str,
+    /// The `checksum` of the package in `Cargo.lock`: the SHA-256 of the `.crate` file, as 64
+    /// lowercase hex digits.
+    pub checksum: &'static str,
+}
+
+/// The crates from outside this project in the boundary's normal-dependency closure, in table
+/// order: the closure of [`BOUNDARY`] over `crypto/fips/Cargo.lock`, every target included.
+/// `bouncycastle-rng` depends on `getrandom`, which brings the other three (`r-efi` on UEFI
+/// only). They carry no `links` key or build script of ours, so the table holds their name,
+/// version and checksum instead of a source HMAC; see [`external_hmac`]. A boundary crate may
+/// depend directly on any of them.
+pub const EXTERNAL_PINS: [ExternalPin; 4] = [
+    ExternalPin {
+        name: "cfg-if",
+        version: "1.0.5",
+        checksum: "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600",
+    },
+    ExternalPin {
+        name: "getrandom",
+        version: "0.4.3",
+        checksum: "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099",
+    },
+    ExternalPin {
+        name: "libc",
+        version: "0.2.191",
+        checksum: "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+    },
+    ExternalPin {
+        name: "r-efi",
+        version: "6.0.0",
+        checksum: "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf",
+    },
+];
+
+/// The length of a registry checksum: SHA-256's output.
+pub const CHECKSUM_LEN: usize = 32;
+
+/// The table value of an external crate: HMAC-SHA-512 under [`MODULE_HMAC_KEY`] over the package
+/// name, a zero byte, the version, a zero byte and the 32 checksum bytes.
+pub fn external_hmac(name: &str, version: &str, checksum: &[u8; CHECKSUM_LEN]) -> [u8; HMAC_LEN] {
+    let key = hmac_key();
+    let mut mac = key.create_generator();
+    mac.do_update(name.as_bytes());
+    mac.do_update(&[0]);
+    mac.do_update(version.as_bytes());
+    mac.do_update(&[0]);
+    mac.do_update(checksum);
+    mac.do_final()
+}
+
+/// A checksum as `Cargo.lock` writes it, 64 lowercase hex digits, as bytes.
+///
+/// # Errors
+/// If `hex` is not 64 lowercase hex digits.
+pub fn parse_checksum(hex: &str) -> Result<[u8; CHECKSUM_LEN], String> {
+    let digits = hex.as_bytes();
+    let valid = |c: &u8| c.is_ascii_digit() || (b'a'..=b'f').contains(c);
+    if digits.len() != 2 * CHECKSUM_LEN || !digits.iter().all(valid) {
+        return Err(format!("`{hex}` is not 64 lowercase hex digits"));
+    }
+    let nibble = |c: u8| if c.is_ascii_digit() { c - b'0' } else { c - b'a' + 10 };
+    let mut out = [0u8; CHECKSUM_LEN];
+    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
+        *byte = nibble(pair[0]) << 4 | nibble(pair[1]);
+    }
+    Ok(out)
+}
+
+/// The table rows of [`EXTERNAL_PINS`], in their order.
+pub fn external_rows() -> Vec<TableRow> {
+    EXTERNAL_PINS
+        .iter()
+        .map(|p| {
+            let checksum = parse_checksum(p.checksum).expect("EXTERNAL_PINS checksums are valid");
+            (p.name.to_string(), external_hmac(p.name, p.version, &checksum))
+        })
+        .collect()
+}
+
+/// Checks that `bouncycastle-fips`'s own manifest asks for every crate of [`EXTERNAL_PINS`] with
+/// the requirement `=<version>`, so that Cargo resolves exactly the pinned versions; and that it
+/// asks for no other version of them.
+///
+/// # Errors
+/// Every disagreement found, one per line.
+pub fn check_pins(fips_manifest: &Manifest) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for pin in EXTERNAL_PINS {
+        let wanted = format!("={}", pin.version);
+        let reqs: Vec<&str> = fips_manifest
+            .requirements
+            .iter()
+            .filter(|(name, _)| name == pin.name)
+            .map(|(_, req)| req.as_str())
+            .collect();
+        if reqs.is_empty() {
+            errors.push(format!(
+                "`{}` is pinned to {} (EXTERNAL_PINS in crypto/fips/build-support/src/lib.rs), \
+                 but bouncycastle-fips's Cargo.toml does not ask for it: add `{} = \"{wanted}\"` \
+                 under [target.'cfg(any())'.dependencies]",
+                pin.name, pin.version, pin.name
+            ));
+        }
+        for req in reqs.into_iter().filter(|r| *r != wanted) {
+            errors.push(format!(
+                "bouncycastle-fips's Cargo.toml asks for `{} = \"{req}\"`, but it is pinned to \
+                 `{wanted}` (EXTERNAL_PINS in crypto/fips/build-support/src/lib.rs); a new \
+                 version needs both changed, and its checksum from Cargo.lock",
+                pin.name
+            ));
+        }
+    }
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
+}
 
 /// The cargo features of boundary crates that add a service which is not approved, as
 /// (package, feature). With `approved-only`, [`check_approved_only`] refuses a build in which any
@@ -117,6 +236,9 @@ pub struct Manifest {
     /// The names of its normal dependencies, target-specific ones included, in manifest order.
     /// Dev- and build-dependencies are not part of the module.
     pub normal_deps: Vec<String>,
+    /// The version requirements of those normal dependencies that give one, as (name,
+    /// requirement), in manifest order.
+    pub requirements: Vec<(String, String)>,
 }
 
 /// One hashed file.
@@ -282,7 +404,7 @@ pub fn dep_var_links(links: &str) -> String {
 
 /// Checks that the crates found are exactly [`BOUNDARY`], each with its `links` key, and that the
 /// boundary is closed: every normal dependency of a boundary crate is in [`BOUNDARY`] or
-/// [`EXTERNAL`].
+/// [`EXTERNAL_PINS`].
 ///
 /// # Errors
 /// Every disagreement found, one per line.
@@ -310,11 +432,14 @@ pub fn check_closure(crates: &[BoundaryCrate]) -> Result<(), String> {
             errors.push(format!("`{name}` was named by DEP_{}_SRC_DIR", c.dep_links));
         }
         for dep in &c.manifest.normal_deps {
-            if !BOUNDARY.contains(&dep.as_str()) && !EXTERNAL.contains(&dep.as_str()) {
+            let external = EXTERNAL_PINS.iter().any(|p| p.name == dep);
+            if !BOUNDARY.contains(&dep.as_str()) && !external {
                 errors.push(format!(
                     "`{name}` depends on `{dep}`, which is not in the module boundary: add it \
                      to BOUNDARY in crypto/fips/build-support/src/lib.rs and to the dependencies \
-                     of bouncycastle-fips, or drop the dependency"
+                     of bouncycastle-fips, or, for a crate from crates.io, to EXTERNAL_PINS and \
+                     the `=` requirements of bouncycastle-fips (crypto/fips/EXTERNAL_CRATES.md); \
+                     or drop the dependency"
                 ));
             }
         }
@@ -333,7 +458,8 @@ pub fn check_closure(crates: &[BoundaryCrate]) -> Result<(), String> {
     if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
 }
 
-/// The table: one row per crate, its package name and per-crate source HMAC, ordered bytewise by
+/// The table: one row per boundary crate, its package name and per-crate source HMAC, and one
+/// per crate of [`EXTERNAL_PINS`], its package name and [`external_hmac`]; ordered bytewise by
 /// package name. The order of `crates` does not matter.
 ///
 /// # Errors
@@ -342,6 +468,7 @@ pub fn build_table(crates: &[BoundaryCrate]) -> Result<Vec<TableRow>, String> {
     check_closure(crates)?;
     let mut table: Vec<TableRow> =
         crates.iter().map(|c| (c.manifest.name.clone(), crate_hmac(&c.files))).collect();
+    table.extend(external_rows());
     table.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     Ok(table)
 }
@@ -369,8 +496,8 @@ pub fn check_expected(
     }
 }
 
-/// The Rust source of the generated file: the table, the toolchain record, and the module HMAC
-/// in a comment. The module HMAC is not a constant the code reads, since it is derived from the
+/// The Rust source of the generated file: the table, the toolchain record, the module HMAC in a
+/// comment, and [`EXTERNAL_PINS`] as `EXTERNAL`. The module HMAC is not a constant the code reads, since it is derived from the
 /// table, never stored on its own.
 pub fn render(table: &[TableRow], toolchain: &Toolchain) -> String {
     let mut s = String::new();
@@ -402,6 +529,19 @@ pub fn render(table: &[TableRow], toolchain: &Toolchain) -> String {
         );
     }
     s.push_str("    ],\n};\n");
+    let _ = writeln!(s, "pub(crate) const EXTERNAL: [ExternalCrate; {}] = [", EXTERNAL_PINS.len());
+    for pin in EXTERNAL_PINS {
+        let checksum = parse_checksum(pin.checksum).expect("EXTERNAL_PINS checksums are valid");
+        let _ = writeln!(
+            s,
+            "    ExternalCrate {{\n        package: {:?},\n        version: {:?},\n        \
+             checksum: [",
+            pin.name, pin.version
+        );
+        s.push_str(&rust_bytes(&checksum, "            "));
+        s.push_str("        ],\n    },\n");
+    }
+    s.push_str("];\n");
     s
 }
 
@@ -422,8 +562,8 @@ fn rust_bytes(bytes: &[u8], indent: &str) -> String {
     s
 }
 
-/// Reads `[package] name` and `links`, and the names of the normal dependencies, from a
-/// `Cargo.toml`: `[dependencies]` and `[target.<cfg>.dependencies]` tables, with `name = ...` or
+/// Reads `[package] name` and `links`, and the names and version requirements of the normal
+/// dependencies, from a `Cargo.toml`: `[dependencies]` and `[target.<cfg>.dependencies]` tables, with `name = ...` or
 /// `name.key = ...` entries, and `[dependencies.<name>]` tables, the form `cargo package` writes.
 /// This is not a TOML parser: it reads the subset Cargo manifests use, and refuses what it cannot
 /// read rather than miss a dependency.
@@ -443,6 +583,7 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     let mut name = None;
     let mut links = None;
     let mut deps = Vec::new();
+    let mut requirements = Vec::new();
     // Open brackets and braces of a value that continues on the next lines (a multi-line array).
     let mut depth: i32 = 0;
     for (n, raw) in text.lines().enumerate() {
@@ -497,16 +638,50 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 }
                 if let Some(dep) = key.first() {
                     deps.push(dep.clone());
+                    // `dep = "req"`, `dep = { version = "req", .. }` or `dep.version = "req"`.
+                    let req = match key.get(1).map(String::as_str) {
+                        None if value.starts_with(['"', '\'']) => Some(unquote(value)),
+                        None => inline_value(value, "version"),
+                        Some("version") => Some(unquote(value)),
+                        Some(_) => None,
+                    };
+                    if let Some(req) = req {
+                        requirements.push((dep.clone(), req));
+                    }
                 }
             }
             Table::OneDep if key == ["package"] => {
                 return Err(format!("line {n}: renamed dependencies are not supported"));
             }
+            Table::OneDep if key == ["version"] => {
+                // The table's dependency is the one its header pushed last.
+                if let Some(dep) = deps.last() {
+                    requirements.push((dep.clone(), unquote(value)));
+                }
+            }
             _ => {}
         }
     }
     let name = name.ok_or_else(|| "no [package] name".to_string())?;
-    Ok(Manifest { name, links, normal_deps: deps })
+    Ok(Manifest { name, links, normal_deps: deps, requirements })
+}
+
+/// The value of `key` in the inline table `value` (`{ version = "1", features = [..] }`),
+/// unquoted, if it has one.
+fn inline_value(value: &str, key: &str) -> Option<String> {
+    let mut rest = value.trim().strip_prefix('{')?.trim_end().strip_suffix('}')?;
+    loop {
+        let (part, tail) = match find_outside_quotes(rest, ',') {
+            Some(i) => (&rest[..i], Some(&rest[i + 1..])),
+            None => (rest, None),
+        };
+        if let Some(eq) = find_outside_quotes(part, '=')
+            && key_segments(&part[..eq]) == [key]
+        {
+            return Some(unquote(&part[eq + 1..]));
+        }
+        rest = tail?;
+    }
 }
 
 /// `line` up to the first `#` outside a string.

@@ -49,6 +49,17 @@ bouncycastle-sha3 = { path = "../sha3" }
 bouncycastle-utils = { path = "../utils" }
 bouncycastle-x963kdf = { path = "../x963kdf" }
 
+# The crates from crates.io inside the module boundary, which bouncycastle-rng brings in, pinned to
+# the versions in the table (EXTERNAL_PINS in build-support/src/lib.rs, which build.rs holds these
+# requirements to; crypto/fips/EXTERNAL_CRATES.md). `cfg(any())` matches no target, so none of them
+# is compiled as a dependency of this crate, but Cargo resolves a lock file for every target, so
+# the `=` requirements still fix the versions in any program that uses the module.
+[target.'cfg(any())'.dependencies]
+cfg-if = "=1.0.5"
+getrandom = "=0.4.3"
+libc = "=0.2.191"
+r-efi = "=6.0.0"
+
 # The build script's HMAC-SHA-512 comes through this crate, never a direct build-dependency on
 # bouncycastle-sha2; see build-support/Cargo.toml for why.
 [build-dependencies]

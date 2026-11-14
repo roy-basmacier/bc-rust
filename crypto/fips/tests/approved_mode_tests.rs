@@ -63,7 +63,8 @@ fn full_and_approved_builds_embed_the_same_table() {
             .collect()
     };
     assert_eq!(pinned(&full), pinned(&approved));
-    assert_eq!(pinned(&full).len(), 15 + 1, "{full:?}");
+    // 15 boundary crates and 4 external ones (EXTERNAL_CRATES.md), then the module HMAC.
+    assert_eq!(pinned(&full).len(), 15 + 4 + 1, "{full:?}");
 
     // Every other line is equal, line for line, unless it is a feature line.
     assert_eq!(full.len(), approved.len());

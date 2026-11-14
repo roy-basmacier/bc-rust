@@ -1,16 +1,17 @@
 //! The build script's logic (`bouncycastle-fips-build`), fed its inputs directly: the per-crate
 //! and module HMACs against values from the independent `dev_scripts/fips_module_hmac.py`, their
-//! independence from input order, what a one-byte edit changes, the closure check, the
-//! `fips-validated` gate and the manifest reader.
+//! independence from input order, what a one-byte edit changes, the closure check, the external
+//! crates' rows and `=` requirements, the `fips-validated` gate and the manifest reader.
 //!
 //! In a test build the helper's SHA-512 is the gated one (`bouncycastle-sha2/fips` unifies), so
 //! every test that hashes runs SHA-2's self-test first. Not the whole power-on, which fails under
 //! the `integrity` feature.
 
 use bouncycastle_fips_build::{
-    BOUNDARY, BoundaryCrate, HMAC_LEN, Manifest, NON_APPROVED, SourceFile, Toolchain, build_table,
-    check_approved_only, check_closure, check_expected, crate_hmac, crlf_to_lf, dep_var_links, hex,
-    module_hmac, parse_features, parse_manifest, render,
+    BOUNDARY, BoundaryCrate, CHECKSUM_LEN, EXTERNAL_PINS, HMAC_LEN, Manifest, NON_APPROVED,
+    SourceFile, Toolchain, build_table, check_approved_only, check_closure, check_expected,
+    check_pins, crate_hmac, crlf_to_lf, dep_var_links, external_hmac, external_rows, hex,
+    module_hmac, parse_checksum, parse_features, parse_manifest, render,
 };
 
 fn power_on() {
@@ -95,6 +96,7 @@ fn boundary() -> Vec<BoundaryCrate> {
                 name: name.to_string(),
                 links: Some(name.replace('-', "_")),
                 normal_deps: vec!["bouncycastle-core".to_string(), "getrandom".to_string()],
+                requirements: vec![],
             },
             files: vec![
                 file("Cargo.toml", name.as_bytes()),
@@ -122,7 +124,7 @@ fn shuffled_inputs_give_the_same_table_and_module_hmac() {
     let crates = boundary();
     let table = build_table(&crates).unwrap();
     let names: Vec<&str> = table.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(names, BOUNDARY, "the table is in BOUNDARY's order");
+    assert_eq!(names, table_names(), "the table is BOUNDARY, then EXTERNAL_PINS");
     let mut sorted = names.clone();
     sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     assert_eq!(names, sorted, "BOUNDARY is bytewise sorted");
@@ -205,10 +207,127 @@ fn an_unlisted_dependency_fails() {
     crates[5].manifest.normal_deps.push("bouncycastle-hex".to_string());
     let e = closure_errors(&crates);
     assert!(e.contains("`bouncycastle-ec` depends on `bouncycastle-hex`"), "{e}");
-    // An external crate other than getrandom is as unlisted as an internal one.
+    // An external crate that is not pinned is as unlisted as an internal one.
+    let mut crates = boundary();
+    crates[8].manifest.normal_deps.push("zeroize".to_string());
+    let e = closure_errors(&crates);
+    assert!(e.contains("depends on `zeroize`") && e.contains("EXTERNAL_PINS"), "{e}");
+    // A pinned one may be a direct dependency of any boundary crate.
     let mut crates = boundary();
     crates[8].manifest.normal_deps.push("libc".to_string());
-    assert!(closure_errors(&crates).contains("depends on `libc`"));
+    crates[3].manifest.normal_deps.push("r-efi".to_string());
+    assert_eq!(check_closure(&crates), Ok(()));
+}
+
+/// BOUNDARY then the external crates' names: the table order, since every `bouncycastle-` name
+/// sorts before the external ones.
+fn table_names() -> Vec<&'static str> {
+    let names: Vec<&str> = BOUNDARY.into_iter().chain(EXTERNAL_PINS.map(|p| p.name)).collect();
+    assert!(names.windows(2).all(|w| w[0].as_bytes() < w[1].as_bytes()), "{names:?}");
+    names
+}
+
+/// The pins as `crypto/fips/Cargo.lock` has them (crypto/fips/EXTERNAL_CRATES.md); the lock
+/// itself is checked against the table through the independent script, in module_table_tests.rs.
+#[test]
+fn the_external_pins() {
+    let pins: Vec<(&str, &str)> = EXTERNAL_PINS.iter().map(|p| (p.name, p.version)).collect();
+    assert_eq!(
+        pins,
+        [("cfg-if", "1.0.5"), ("getrandom", "0.4.3"), ("libc", "0.2.191"), ("r-efi", "6.0.0")]
+    );
+    for pin in EXTERNAL_PINS {
+        assert_eq!(hex(&parse_checksum(pin.checksum).unwrap()), pin.checksum);
+    }
+}
+
+// The getrandom row, from dev_scripts/fips_module_hmac.py over crypto/fips/Cargo.lock.
+const KAT_GETRANDOM: &str = "2912265411602a18bed6f8ae9c45658aa088492833fedebb59d763ca13c6c2dd\
+                             efc1e74e01853f44ba18f10af1fcd6e54b80a488d3a7fb172f9351416f49121b";
+
+#[test]
+fn an_external_row_pins_the_name_the_version_and_the_checksum() {
+    power_on();
+    let pin = EXTERNAL_PINS[1];
+    let checksum = parse_checksum(pin.checksum).unwrap();
+    let row = external_hmac(pin.name, pin.version, &checksum);
+    assert_eq!(row, unhex(&KAT_GETRANDOM.replace(' ', "")));
+    assert_eq!(external_rows()[1], (pin.name.to_string(), row));
+
+    // A changed version, checksum or name is a different row.
+    assert_ne!(external_hmac(pin.name, "0.4.4", &checksum), row);
+    for i in [0, 17, CHECKSUM_LEN - 1] {
+        let mut other = checksum;
+        other[i] ^= 1;
+        assert_ne!(external_hmac(pin.name, pin.version, &other), row, "byte {i}");
+    }
+    assert_ne!(external_hmac("getrandon", pin.version, &checksum), row);
+    // The zero bytes separate the fields: moving a character across one changes the row.
+    assert_ne!(external_hmac("getrandom0", ".4.3", &checksum), row);
+
+    // And so a different module HMAC.
+    let table = build_table(&boundary()).unwrap();
+    let mut changed = table.clone();
+    let at = changed.iter().position(|(n, _)| n == "getrandom").unwrap();
+    changed[at].1 = external_hmac(pin.name, "0.4.4", &checksum);
+    assert_ne!(module_hmac(&changed), module_hmac(&table));
+}
+
+#[test]
+fn checksums_are_64_lowercase_hex_digits() {
+    let mut expected = [0u8; CHECKSUM_LEN];
+    expected[0] = 0xab;
+    expected[CHECKSUM_LEN - 1] = 0x09;
+    let text = format!("ab{}09", "0".repeat(60));
+    assert_eq!(parse_checksum(&text), Ok(expected));
+    for bad in
+        [&text[2..], &format!("{text}00"), &text.replace("ab", "AB"), &text.replace("ab", "ag")]
+    {
+        assert!(parse_checksum(bad).is_err(), "{bad}");
+    }
+}
+
+/// A manifest of bouncycastle-fips with the given `[target.'cfg(any())'.dependencies]` lines.
+fn fips_manifest(pins: &str) -> Manifest {
+    parse_manifest(&format!(
+        "[package]\nname = \"bouncycastle-fips\"\n[dependencies]\nbouncycastle-aes = {{ path = \
+         \"../aes\" }}\n[target.'cfg(any())'.dependencies]\n{pins}"
+    ))
+    .unwrap()
+}
+
+const PINS: &str = "cfg-if = \"=1.0.5\"\ngetrandom = \"=0.4.3\"\nlibc = \"=0.2.191\"\n\
+                    r-efi = \"=6.0.0\"\n";
+
+#[test]
+fn the_fips_manifest_asks_for_the_pinned_versions() {
+    assert_eq!(check_pins(&fips_manifest(PINS)), Ok(()));
+    // The real one, which build.rs checks too.
+    let own = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+    assert_eq!(check_pins(&parse_manifest(&own).unwrap()), Ok(()));
+    // The inline-table form is read too.
+    let inline = PINS.replace("libc = \"=0.2.191\"", "libc = { version = \"=0.2.191\" }");
+    assert_eq!(check_pins(&fips_manifest(&inline)), Ok(()));
+}
+
+#[test]
+fn a_changed_or_missing_version_requirement_fails() {
+    // Another version, the same version without `=`, and a second, looser requirement.
+    for (pins, wanted) in [
+        (PINS.replace("=0.4.3", "=0.4.4"), "asks for `getrandom = \"=0.4.4\"`"),
+        (PINS.replace("=0.4.3", "0.4.3"), "asks for `getrandom = \"0.4.3\"`"),
+        (format!("{PINS}[dependencies]\nlibc = \"0.2\"\n"), "asks for `libc = \"0.2\"`"),
+    ] {
+        let e = check_pins(&fips_manifest(&pins)).unwrap_err();
+        assert!(e.contains(wanted) && e.contains("EXTERNAL_PINS"), "{e}");
+        assert_eq!(e.lines().count(), 1, "{e}");
+    }
+    let missing = PINS.replace("r-efi = \"=6.0.0\"\n", "");
+    let e = check_pins(&fips_manifest(&missing)).unwrap_err();
+    assert!(e.contains("`r-efi` is pinned to 6.0.0") && e.contains("does not ask for it"), "{e}");
+    // Every problem is reported.
+    let e = check_pins(&fips_manifest("")).unwrap_err();
+    assert_eq!(e.lines().count(), EXTERNAL_PINS.len(), "{e}");
 }
 
 #[test]
@@ -314,7 +433,7 @@ fn the_generated_file() {
     assert!(
         s.contains(&format!("// Module HMAC, derived from TABLE: {}\n", hex(&module_hmac(&table))))
     );
-    assert!(s.contains("pub(crate) const TABLE: [ModuleTableEntry; 15] = [\n"));
+    assert!(s.contains("pub(crate) const TABLE: [ModuleTableEntry; 19] = [\n"));
     assert!(s.contains("        package: \"bouncycastle-aes\",\n        hmac: [\n            0x"));
     let first = &table[0].1;
     let line = first[..8].iter().map(|b| format!("0x{b:02x},")).collect::<Vec<_>>().join(" ");
@@ -327,8 +446,14 @@ fn the_generated_file() {
          &[\"fips\"] },\n        CrateFeatures { package: \"bouncycastle-ec\", features: &[] \
          },\n    ],\n};\n"
     ), "{s}");
-    assert_eq!(s.matches("ModuleTableEntry {").count(), 15);
-    assert_eq!(s.matches("0x").count(), 15 * HMAC_LEN);
+    assert_eq!(s.matches("ModuleTableEntry {").count(), 19);
+    assert!(s.contains(
+        "pub(crate) const EXTERNAL: [ExternalCrate; 4] = [\n    ExternalCrate {\n        package: \
+         \"cfg-if\",\n        version: \"1.0.5\",\n        checksum: [\n            0x4e, 0x76, \
+         0x48, 0x17, 0x5b, 0x45, 0xa9, 0xa4,\n"
+    ), "{s}");
+    assert_eq!(s.matches("ExternalCrate {").count(), 4);
+    assert_eq!(s.matches("0x").count(), 19 * HMAC_LEN + 4 * CHECKSUM_LEN);
 }
 
 #[test]
@@ -418,6 +543,7 @@ name = "not-a-package"
             ]
             .map(String::from)
             .to_vec(),
+            requirements: vec![("getrandom".to_string(), "0.4.0-rc.1".to_string())],
         }
     );
 }
@@ -435,6 +561,23 @@ fn manifests_in_the_packaged_form() {
     assert_eq!(m.name, "bouncycastle-aes");
     assert_eq!(m.links.as_deref(), Some("bouncycastle_aes"));
     assert_eq!(m.normal_deps, ["bouncycastle-cipher", "bouncycastle-core"]);
+    let req = |d: &str| (d.to_string(), "0.1.4".to_string());
+    assert_eq!(m.requirements, [req("bouncycastle-cipher"), req("bouncycastle-core")]);
+}
+
+#[test]
+fn version_requirements_in_every_form() {
+    let m = parse_manifest(
+        "[package]\nname = \"x\"\nversion = \"9\"\n[dependencies]\na = \"=1.0\"\n\
+         b = { version = '2', features = [\"c, version = 3\"] }\nc.version = \"4\"\n\
+         d = { path = \"p\" }\ne.workspace = true\n[target.'cfg(any())'.dependencies]\nf = \"5\"\n\
+         [dev-dependencies]\ng = \"6\"\n[dependencies.h]\nversion = \"7\"\n",
+    )
+    .unwrap();
+    let reqs: Vec<(&str, &str)> =
+        m.requirements.iter().map(|(d, r)| (d.as_str(), r.as_str())).collect();
+    assert_eq!(reqs, [("a", "=1.0"), ("b", "2"), ("c", "4"), ("f", "5"), ("h", "7")]);
+    assert_eq!(m.normal_deps, ["a", "b", "c", "d", "e", "f", "h"]);
 }
 
 #[test]
