@@ -11,11 +11,13 @@ default = ["sm2"]
 sm2 = []
 
 [dependencies]
+bouncycastle-core.workspace = true
 bouncycastle-utils.workspace = true
 
 [dev-dependencies]
 bouncycastle-core.workspace = true
 bouncycastle-hex.workspace = true
+bouncycastle-rng.workspace = true
 criterion.workspace = true
 
 [[bench]]

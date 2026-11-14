@@ -5,6 +5,7 @@
 //! [`crate::hazmat::p256_scalar`]), just delegating the widening-multiply/REDC work to the shared
 //! module instead of hand-writing it again.
 
+use crate::curve::{PublicScalar, ScalarFieldElement, SecretScalar};
 use crate::montgomery;
 use bouncycastle_utils::ct;
 use bouncycastle_utils::ct::Condition;
@@ -217,13 +218,12 @@ impl PartialEq for Bp384r1ScalarField {
 impl Eq for Bp384r1ScalarField {}
 
 fn reduce_once(limbs: [u64; 6]) -> [u64; 6] {
-    let (diff, borrow) = crate::nat::sub(&limbs, &N_LIMBS);
-    let mut result = [0u64; 6];
-    ct::conditional_select(Condition::<u64>::from_lsb(borrow), &limbs, &diff, &mut result);
-    result
+    let mut out = [0u64; 6];
+    reduce_once_into(&limbs, &mut out);
+    out
 }
 
-/// [`reduce_once`] of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
+/// The one conditional subtraction of `n`, of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
 /// `limbs` is moved back in under the borrow's mask where the subtraction borrowed. For a
 /// secret value, so that no copy of it is staged in a return slot: `limbs` is the caller's and
 /// `out` the new `Secret`'s array.
@@ -299,5 +299,94 @@ impl Bp384r1PublicScalar {
     /// [`crate::inverse_vartime`].
     pub fn invert_vartime(&self) -> Bp384r1ScalarField {
         Bp384r1ScalarField::from_limbs(crate::inverse_vartime::mod_inverse(&self.0, &N_LIMBS))
+    }
+}
+
+impl SecretScalar for Bp384r1Scalar {
+    type Limbs = [u64; 6];
+    type Bytes = [u8; 48];
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        Bp384r1Scalar::from_limbs(limbs)
+    }
+
+    fn from_borrowed_limbs(limbs: &[u64; 6]) -> Self {
+        Bp384r1Scalar::from_borrowed_limbs(limbs)
+    }
+
+    fn from_be_bytes(bytes: &[u8; 48]) -> Self {
+        Bp384r1Scalar::from_be_bytes(bytes)
+    }
+
+    fn to_be_bytes(&self) -> [u8; 48] {
+        Bp384r1Scalar::to_be_bytes(self)
+    }
+}
+
+impl ScalarFieldElement for Bp384r1ScalarField {
+    type Limbs = [u64; 6];
+    type Secret = Bp384r1Scalar;
+    const ZERO: Self = Bp384r1ScalarField::ZERO;
+    const ONE: Self = Bp384r1ScalarField::ONE;
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        Bp384r1ScalarField::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 6] {
+        Bp384r1ScalarField::to_limbs(self)
+    }
+
+    fn is_zero(&self) -> Condition<u64> {
+        Bp384r1ScalarField::is_zero(self)
+    }
+
+    fn zeroize(&mut self) {
+        Bp384r1ScalarField::zeroize(self)
+    }
+
+    fn add(&self, other: &Self) -> Self {
+        Bp384r1ScalarField::add(self, other)
+    }
+
+    fn sub(&self, other: &Self) -> Self {
+        Bp384r1ScalarField::sub(self, other)
+    }
+
+    fn negate(&self) -> Self {
+        Bp384r1ScalarField::negate(self)
+    }
+
+    fn mul(&self, other: &Self) -> Self {
+        Bp384r1ScalarField::mul(self, other)
+    }
+
+    fn square(&self) -> Self {
+        Bp384r1ScalarField::square(self)
+    }
+
+    fn from_secret(secret: &Bp384r1Scalar) -> Self {
+        Bp384r1ScalarField::from_secret(secret)
+    }
+
+    fn invert(&self) -> Self {
+        Bp384r1ScalarField::invert(self)
+    }
+}
+
+impl PublicScalar for Bp384r1PublicScalar {
+    type Limbs = [u64; 6];
+    type Field = Bp384r1ScalarField;
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        Bp384r1PublicScalar::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 6] {
+        Bp384r1PublicScalar::to_limbs(self)
+    }
+
+    fn invert_vartime(&self) -> Bp384r1ScalarField {
+        Bp384r1PublicScalar::invert_vartime(self)
     }
 }

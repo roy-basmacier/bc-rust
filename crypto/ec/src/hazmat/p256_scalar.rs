@@ -21,6 +21,7 @@
 //! `n`. Verified (not checked in) against 30,000 random trials plus the `(n-1)*(n-1)` worst case:
 //! the reduction never touches beyond a 9-limb accumulator, which is what `redc` uses.
 
+use crate::curve::{PublicScalar, ScalarFieldElement, SecretScalar};
 use crate::nat;
 use bouncycastle_utils::ct;
 use bouncycastle_utils::ct::Condition;
@@ -376,13 +377,12 @@ fn redc(t: &[u64; 8]) -> [u64; 4] {
 }
 
 fn reduce_once(limbs: [u64; 4]) -> [u64; 4] {
-    let (diff, borrow) = nat::sub(&limbs, &N_LIMBS);
-    let mut result = [0u64; 4];
-    ct::conditional_select(Condition::<u64>::from_lsb(borrow), &limbs, &diff, &mut result);
-    result
+    let mut out = [0u64; 4];
+    reduce_once_into(&limbs, &mut out);
+    out
 }
 
-/// [`reduce_once`] of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
+/// The one conditional subtraction of `n`, of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
 /// `limbs` is moved back in under the borrow's mask where the subtraction borrowed. For a
 /// secret value, so that no copy of it is staged in a return slot: `limbs` is the caller's and
 /// `out` the new `Secret`'s array.
@@ -491,5 +491,94 @@ mod tests {
     fn secret_scalar_reduces_out_of_range_input() {
         let scalar = P256Scalar::from_limbs(N_LIMBS);
         assert_eq!(*scalar.limbs(), [0, 0, 0, 0]);
+    }
+}
+
+impl SecretScalar for P256Scalar {
+    type Limbs = [u64; 4];
+    type Bytes = [u8; 32];
+
+    fn from_limbs(limbs: [u64; 4]) -> Self {
+        P256Scalar::from_limbs(limbs)
+    }
+
+    fn from_borrowed_limbs(limbs: &[u64; 4]) -> Self {
+        P256Scalar::from_borrowed_limbs(limbs)
+    }
+
+    fn from_be_bytes(bytes: &[u8; 32]) -> Self {
+        P256Scalar::from_be_bytes(bytes)
+    }
+
+    fn to_be_bytes(&self) -> [u8; 32] {
+        P256Scalar::to_be_bytes(self)
+    }
+}
+
+impl ScalarFieldElement for P256ScalarField {
+    type Limbs = [u64; 4];
+    type Secret = P256Scalar;
+    const ZERO: Self = P256ScalarField::ZERO;
+    const ONE: Self = P256ScalarField::ONE;
+
+    fn from_limbs(limbs: [u64; 4]) -> Self {
+        P256ScalarField::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 4] {
+        P256ScalarField::to_limbs(self)
+    }
+
+    fn is_zero(&self) -> Condition<u64> {
+        P256ScalarField::is_zero(self)
+    }
+
+    fn zeroize(&mut self) {
+        P256ScalarField::zeroize(self)
+    }
+
+    fn add(&self, other: &Self) -> Self {
+        P256ScalarField::add(self, other)
+    }
+
+    fn sub(&self, other: &Self) -> Self {
+        P256ScalarField::sub(self, other)
+    }
+
+    fn negate(&self) -> Self {
+        P256ScalarField::negate(self)
+    }
+
+    fn mul(&self, other: &Self) -> Self {
+        P256ScalarField::mul(self, other)
+    }
+
+    fn square(&self) -> Self {
+        P256ScalarField::square(self)
+    }
+
+    fn from_secret(secret: &P256Scalar) -> Self {
+        P256ScalarField::from_secret(secret)
+    }
+
+    fn invert(&self) -> Self {
+        P256ScalarField::invert(self)
+    }
+}
+
+impl PublicScalar for P256PublicScalar {
+    type Limbs = [u64; 4];
+    type Field = P256ScalarField;
+
+    fn from_limbs(limbs: [u64; 4]) -> Self {
+        P256PublicScalar::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 4] {
+        P256PublicScalar::to_limbs(self)
+    }
+
+    fn invert_vartime(&self) -> P256ScalarField {
+        P256PublicScalar::invert_vartime(self)
     }
 }

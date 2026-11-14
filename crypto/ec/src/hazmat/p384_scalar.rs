@@ -7,6 +7,7 @@
 //! 12-limb product (`n` is close enough to `2^384` that `2n` can exceed it): verified (not checked
 //! in) against 30,000 random trials plus the `(n-1)*(n-1)` worst case.
 
+use crate::curve::{PublicScalar, ScalarFieldElement, SecretScalar};
 use crate::nat;
 use bouncycastle_utils::ct;
 use bouncycastle_utils::ct::Condition;
@@ -352,13 +353,12 @@ fn redc(t: &[u64; 12]) -> [u64; 6] {
 }
 
 fn reduce_once(limbs: [u64; 6]) -> [u64; 6] {
-    let (diff, borrow) = nat::sub(&limbs, &N_LIMBS);
-    let mut result = [0u64; 6];
-    ct::conditional_select(Condition::<u64>::from_lsb(borrow), &limbs, &diff, &mut result);
-    result
+    let mut out = [0u64; 6];
+    reduce_once_into(&limbs, &mut out);
+    out
 }
 
-/// [`reduce_once`] of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
+/// The one conditional subtraction of `n`, of a borrowed value into `out`, in place: `out` takes `limbs - n`, and
 /// `limbs` is moved back in under the borrow's mask where the subtraction borrowed. For a
 /// secret value, so that no copy of it is staged in a return slot: `limbs` is the caller's and
 /// `out` the new `Secret`'s array.
@@ -434,5 +434,94 @@ impl P384PublicScalar {
     /// [`crate::inverse_vartime`].
     pub fn invert_vartime(&self) -> P384ScalarField {
         P384ScalarField::from_limbs(crate::inverse_vartime::mod_inverse(&self.0, &N_LIMBS))
+    }
+}
+
+impl SecretScalar for P384Scalar {
+    type Limbs = [u64; 6];
+    type Bytes = [u8; 48];
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        P384Scalar::from_limbs(limbs)
+    }
+
+    fn from_borrowed_limbs(limbs: &[u64; 6]) -> Self {
+        P384Scalar::from_borrowed_limbs(limbs)
+    }
+
+    fn from_be_bytes(bytes: &[u8; 48]) -> Self {
+        P384Scalar::from_be_bytes(bytes)
+    }
+
+    fn to_be_bytes(&self) -> [u8; 48] {
+        P384Scalar::to_be_bytes(self)
+    }
+}
+
+impl ScalarFieldElement for P384ScalarField {
+    type Limbs = [u64; 6];
+    type Secret = P384Scalar;
+    const ZERO: Self = P384ScalarField::ZERO;
+    const ONE: Self = P384ScalarField::ONE;
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        P384ScalarField::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 6] {
+        P384ScalarField::to_limbs(self)
+    }
+
+    fn is_zero(&self) -> Condition<u64> {
+        P384ScalarField::is_zero(self)
+    }
+
+    fn zeroize(&mut self) {
+        P384ScalarField::zeroize(self)
+    }
+
+    fn add(&self, other: &Self) -> Self {
+        P384ScalarField::add(self, other)
+    }
+
+    fn sub(&self, other: &Self) -> Self {
+        P384ScalarField::sub(self, other)
+    }
+
+    fn negate(&self) -> Self {
+        P384ScalarField::negate(self)
+    }
+
+    fn mul(&self, other: &Self) -> Self {
+        P384ScalarField::mul(self, other)
+    }
+
+    fn square(&self) -> Self {
+        P384ScalarField::square(self)
+    }
+
+    fn from_secret(secret: &P384Scalar) -> Self {
+        P384ScalarField::from_secret(secret)
+    }
+
+    fn invert(&self) -> Self {
+        P384ScalarField::invert(self)
+    }
+}
+
+impl PublicScalar for P384PublicScalar {
+    type Limbs = [u64; 6];
+    type Field = P384ScalarField;
+
+    fn from_limbs(limbs: [u64; 6]) -> Self {
+        P384PublicScalar::from_limbs(limbs)
+    }
+
+    fn to_limbs(&self) -> [u64; 6] {
+        P384PublicScalar::to_limbs(self)
+    }
+
+    fn invert_vartime(&self) -> P384ScalarField {
+        P384PublicScalar::invert_vartime(self)
     }
 }

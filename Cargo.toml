@@ -91,6 +91,8 @@ bouncycastle-chacha20-poly1305-aead.workspace = true
 bouncycastle-cipher.workspace = true
 bouncycastle-concatkdf.workspace = true
 bouncycastle-core.workspace = true
+# With `sm2`: the umbrella crate offers everything, and the workspace entry leaves it off.
+bouncycastle-ec = { workspace = true, features = ["sm2"] }
 bouncycastle-eccdh.workspace = true
 bouncycastle-ecdsa.workspace = true
 bouncycastle-factory.workspace = true
