@@ -11,6 +11,7 @@ bouncycastle-aes = { path = "../../../../../aes" }
 bouncycastle-ascon = { path = "../../../../../ascon" }
 bouncycastle-cipher = { path = "../../../../../cipher" }
 bouncycastle-core = { path = "../../../../../core" }
+bouncycastle-ec = { path = "../../../../../ec", default-features = false }
 bouncycastle-ecdsa = { path = "../../../../../ecdsa" }
 bouncycastle-hkdf = { path = "../../../../../hkdf" }
 bouncycastle-hmac = { path = "../../../../../hmac" }

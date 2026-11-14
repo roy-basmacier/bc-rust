@@ -15,7 +15,8 @@ use bouncycastle_core::symmetric_key::{
     MacVerificationKey,
 };
 use bouncycastle_core::traits::{HashOneShot, KDF, MACGenerator};
-use bouncycastle_ecdsa::keys_p256::keygen;
+use bouncycastle_ec::P256;
+use bouncycastle_ecdsa::keys::keygen;
 use bouncycastle_fips::{module_info, power_on_self_tests};
 use bouncycastle_hkdf::HKDF;
 use bouncycastle_hmac::HmacKey;
@@ -69,7 +70,7 @@ fn main() -> ExitCode {
     let okm = HKDF::<SHA256>::new().derive_key(&ikm, b"info", 32).expect("HKDF derives");
     assert_eq!(okm.key_len(), 32);
 
-    let (pk, sk) = keygen(&mut rng).expect("a P-256 key pair");
+    let (pk, sk) = keygen::<P256, SHA256>(&mut rng).expect("a P-256 key pair");
     let signature = sk.sign_deterministic(b"message", None).expect("ECDSA signs");
     assert!(pk.verify(b"message", None, &signature).is_ok());
     assert!(pk.verify(b"another message", None, &signature).is_err());

@@ -15,12 +15,12 @@ use bouncycastle_core::key_material::{KeyMaterial0, KeyMaterial512, KeyType};
 use bouncycastle_core::security_strength::SecurityStrength;
 use bouncycastle_core::signature_key::{SignatureAlgorithm, SigningKey, VerifyingKey};
 use bouncycastle_core::traits::{RNG, SignatureSigner};
-use bouncycastle_ecdsa::{
-    keys_bp256r1, keys_bp384r1, keys_bp512r1, keys_p256, keys_p256k1, keys_p384, keys_p521,
-};
+use bouncycastle_ec::{Bp256r1, Bp384r1, Bp512r1, P256, P384, P521, Secp256K1};
+use bouncycastle_ecdsa::keys::keygen;
 use bouncycastle_fips::approved::*;
 use bouncycastle_rng::Sp80090ADrbg;
 use bouncycastle_rng::hazmat::NewUninitialized;
+use bouncycastle_sha2::{SHA256, SHA384, SHA512};
 
 /// SHA-2's self-test, which the DRBG and ECDSA's hashes need under the `sha2` feature. Not the
 /// whole power-on, which fails under `integrity`.
@@ -104,13 +104,13 @@ fn same_as_direct<Pk, Sk, A, const SIG_LEN: usize>(
 #[test]
 fn ecdsa_wrappers_match_bouncycastle_ecdsa() {
     power_on();
-    same_as_direct(|d| ecdsa_p256_keygen(d), keys_p256::keygen);
-    same_as_direct(|d| ecdsa_p384_keygen(d), keys_p384::keygen);
-    same_as_direct(|d| ecdsa_p521_keygen(d), keys_p521::keygen);
-    same_as_direct(|d| ecdsa_bp256r1_keygen(d), keys_bp256r1::keygen);
-    same_as_direct(|d| ecdsa_bp384r1_keygen(d), keys_bp384r1::keygen);
-    same_as_direct(|d| ecdsa_bp512r1_keygen(d), keys_bp512r1::keygen);
-    same_as_direct(|d| ecdsa_secp256k1_keygen(d), keys_p256k1::keygen);
+    same_as_direct(|d| ecdsa_p256_keygen(d), keygen::<P256, SHA256>);
+    same_as_direct(|d| ecdsa_p384_keygen(d), keygen::<P384, SHA384>);
+    same_as_direct(|d| ecdsa_p521_keygen(d), keygen::<P521, SHA512>);
+    same_as_direct(|d| ecdsa_bp256r1_keygen(d), keygen::<Bp256r1, SHA256>);
+    same_as_direct(|d| ecdsa_bp384r1_keygen(d), keygen::<Bp384r1, SHA384>);
+    same_as_direct(|d| ecdsa_bp512r1_keygen(d), keygen::<Bp512r1, SHA512>);
+    same_as_direct(|d| ecdsa_secp256k1_keygen(d), keygen::<Secp256K1, SHA256>);
 }
 
 fn insufficient<T>(result: Result<T, SignatureError>) -> bool {
