@@ -1,8 +1,9 @@
 # FIPS 140-3 self-tests and module integrity: summary of the work
 
 **Status: a prototype, not a validated module.** It implements the known-answer self-tests
-(CASTs) FIPS 140-3 requires for AES, SHA-2 and HMAC-SHA-512, the gates that keep AES and SHA-2
-unusable until the self-tests pass, and the error state a failure enters; and the module's
+(CASTs) FIPS 140-3 requires for AES, SHA-2, HMAC-SHA-512, ECDSA and ECC CDH, the gates that keep
+AES, SHA-2, ECDSA and ECC CDH unusable until the self-tests pass, the pair-wise consistency tests
+on generated ECDSA and ECC CDH key pairs, and the error state a failure enters; and the module's
 integrity: a source pin (per-crate source HMACs and a module HMAC over them) and a software
 integrity test over the compiled program (the binary HMAC), with an approved-mode build that
 leaves SM2 out. A FIPS 140-3 validation needs more (see
@@ -182,6 +183,30 @@ source HMACs, a module HMAC over their table, and a binary HMAC").
   `approved-only` fails the build if it is on and offers the approved services as concrete types
   in `bouncycastle_fips::approved`. Design and decisions: [`APPROVED_MODE.md`](APPROVED_MODE.md).
 
+## ECDSA and ECC CDH
+
+Added to this branch after the module integrity work, in the same layout (variant B):
+`bouncycastle-ecdsa` and `bouncycastle-eccdh` each gained a `fips` feature with a `self_test()`,
+a private status, gates, and a pair-wise consistency test (PCT) in `keygen`; `bouncycastle-fips`
+runs them after AES (features `ecdsa` and `eccdh`, both default).
+
+* **CASTs.** ECDSA: signature generation with `k` fixed, deterministic signature generation, and
+  verification (IG 10.3.A Resolution 10 and Note10), on ECDSA-P256-SHA256, from NIST ACVP
+  `ECDSA-SigGen-FIPS186-5` tcId 131, `DetECDSA-SigGen-FIPS186-5` tcId 111 and
+  `ECDSA-SigVer-FIPS186-5` tcId 54. ECC CDH: the P-256 primitive, CAVP
+  `KAS_ECC_CDH_PrimitiveTest.txt` `[P-256]` `COUNT = 0` (IG D.F).
+* **One curve per algorithm, not one per curve family.** Note16 and Note17 ask for one curve per
+  field type, and every curve here is prime-field; IG D.F asks for "any NIST-recommended curve".
+  P-256 is the smallest supported ([10.29]). The case for more (GeneralNote1, per-curve field
+  arithmetic) is in the crate docs' Requirements section.
+* **PCTs.** ECDSA: a deterministic signature under the new key, verified (the signature use the
+  IG asks a PCT to match). ECC CDH: SP 800-56A Rev. 3 Section 5.6.2.1.4 method b, `[d]G == Q`.
+  A failure drops the pair and enters the error state.
+* **Gates.** Key generation, signer, verifier and agreement creation refuse until the self-test
+  has passed (`SignatureError` / `KeyAgreementError::SelfTestNotPassed`); `derive_pk` panics;
+  existing signers, verifiers and agreement workers refuse in the error state. Decoding keys is
+  not gated.
+
 ## What is still missing
 
 Before a Security Level 1 validation (decision 9), at least:
@@ -190,9 +215,9 @@ Before a Security Level 1 validation (decision 9), at least:
   the boundary pulls in (`getrandom`, `cfg-if`, `libc`), which the source pin does not cover;
 * an approved **service indicator**, since bc-rust also ships non-approved algorithms (SM3, SM4,
   ARIA, Camellia);
-* **CASTs for every other approved algorithm** in the boundary: ascon, SHA-3 and SHAKE, ECDSA,
-  ECC CDH, HKDF, the X9.63 and concatenation KDFs, the Hash DRBG; and **pairwise consistency
-  tests** on generated key pairs;
+* **CASTs for every other approved algorithm** in the boundary: ascon, SHA-3 and SHAKE, HKDF,
+  the X9.63 and concatenation KDFs, the Hash DRBG (ECDSA, ECC CDH and their pair-wise
+  consistency tests are done; see [ECDSA and ECC CDH](#ecdsa-and-ecc-cdh));
 * entropy source health tests, the GCM IV rules (IG C.H), the security policy and CAVP
   certificates.
 

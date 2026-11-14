@@ -6,7 +6,8 @@
 //! so each runs the self-tests once at startup, and "rebooting" the module is running the command
 //! again. Its order is `bouncycastle_fips`'s: the SHA-2 self-tests (HMAC-SHA-512 cannot run
 //! before SHA-512 has passed), HMAC-SHA-512, the software integrity test (the binary HMAC), the
-//! module integrity check (the module HMAC; `fips-validated` only), then AES.
+//! module integrity check (the module HMAC; `fips-validated` only), then AES, ECDSA and ECC
+//! CDH.
 
 use bouncycastle_fips::{
     SELF_TESTED, SelfTestError, SelfTestStatus, SelfTestedAlgorithm, module_info,
