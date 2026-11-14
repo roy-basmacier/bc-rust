@@ -291,7 +291,11 @@ mod tests {
 
     use super::*;
     use crate::AES128Key;
-    use bouncycastle_core::traits::SymmetricCipherEncryptor;
+    use bouncycastle_cipher::modes::CTR;
+    use bouncycastle_core::symmetric_key::{AeadEncryptionKey, SymmetricEncryptionKey};
+    use bouncycastle_core::traits::{
+        AEADCipherEncryptor, StreamCipherEncryptor, SymmetricCipherEncryptor,
+    };
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     fn gcm_key_result() -> Result<AES128Key<GCM>, SymmetricCipherError> {
@@ -368,6 +372,18 @@ mod tests {
         let mut worker = held.create_encryptor_nonce(&KAT.gcm_iv);
         let mut out = [0u8; 16];
         assert!(worker.do_encrypt_out(&KAT.gcm_pt, &mut out).is_ok());
+        // Workers whose next output needs no new block: a GCM encryptor whose tag is masked with
+        // the CIPH_K(J0) computed when it was made, and a CTR encryptor with 11 bytes of keystream
+        // left from its first call.
+        let mut tag_worker = held.create_encryptor_nonce(&KAT.gcm_iv);
+        assert!(tag_worker.do_encrypt_out(&KAT.gcm_pt, &mut out).is_ok());
+        let ctr_key = AES128Key::<CTR>::from_key_material(
+            &KeyMaterial::<16>::from_bytes_as_type(&KAT.gcm_key, KeyType::SymmetricCipherKey)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut ctr_worker = ctr_key.create_encryptor_nonce(&KAT.gcm_iv);
+        assert_eq!(ctr_worker.do_encrypt_inplace(&mut [0u8; 5]), Ok(5));
 
         // A run with a wrong answer fails and leaves AES in the error state for good.
         // Only the last of the three CASTs is wrong, so the run must not stop at the first.
@@ -393,6 +409,12 @@ mod tests {
         assert!(encrypt.is_err());
         assert!(
             catch_unwind(AssertUnwindSafe(|| worker.do_encrypt_out(&KAT.gcm_pt, &mut out)))
+                .is_err()
+        );
+        // Nor do those whose output takes no block call: `BlockPermutation::assert_operational`.
+        assert!(catch_unwind(AssertUnwindSafe(|| tag_worker.do_encrypt_final_detached())).is_err());
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| ctr_worker.do_encrypt_inplace(&mut [0u8; 3])))
                 .is_err()
         );
         // The KAT's own keys are not gated, so a KAT run in the error state reports its answer

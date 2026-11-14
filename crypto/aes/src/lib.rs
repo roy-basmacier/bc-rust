@@ -185,8 +185,8 @@
 //! * Every AES key constructor returns `SymmetricCipherError::SelfTestNotPassed` until the
 //!   self-test has passed. A re-run of a passed self-test keeps keys available.
 //! * Once the module is in the FIPS 140-3 error state (any self-tested algorithm has failed;
-//!   `bouncycastle_core::fips::error_state()`), no key can be created and every block operation
-//!   of an existing key or worker panics, until the program restarts.
+//!   `bouncycastle_core::fips::error_state()`), no key can be created and every operation of an
+//!   existing key or worker that would produce output panics, until the program restarts.
 //! * The feature is build-wide: if any dependency turns it on, every AES key in the program is
 //!   gated. An application normally enables it through `bouncycastle-fips` and runs the self-test
 //!   with `bouncycastle_fips::power_on_self_tests()` first thing in `main`.
