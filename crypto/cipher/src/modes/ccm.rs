@@ -739,6 +739,11 @@ where
             blocks,
         );
     }
+
+    /// The permutation's check: the keystream is its output.
+    fn assert_operational(&self) {
+        self.perm.assert_operational();
+    }
 }
 
 /// What [`CcmPacketEncryptor`] and [`CcmPacketDecryptor`] share: the `Ccm` state, which the trait
