@@ -1,12 +1,17 @@
-# FIPS 140-3 self-tests for AES and SHA-2: summary of the work
+# FIPS 140-3 self-tests and module integrity: summary of the work
 
-**Status: a self-test prototype, not a validated module.** It implements the known-answer
-self-tests (CASTs) FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms
-unusable until the self-tests pass, and the error state a failure enters. A FIPS 140-3
-validation needs much more (see [What is still missing](#what-is-still-missing)).
+**Status: a prototype, not a validated module.** It implements the known-answer self-tests
+(CASTs) FIPS 140-3 requires for AES, SHA-2 and HMAC-SHA-512, the gates that keep AES and SHA-2
+unusable until the self-tests pass, and the error state a failure enters; and the module's
+integrity: a source pin (per-crate source HMACs and a module HMAC over them) and a software
+integrity test over the compiled program (the binary HMAC), with an approved-mode build that
+leaves SM2 out. A FIPS 140-3 validation needs more (see
+[What is still missing](#what-is-still-missing)).
 
-Branch: `feature/fips-kats` on `github.com/roy-basmacier/bc-rust`, 21 commits on top of
-`release/0.1.4alpha`.
+Branch: `feature/fips-kats` on `github.com/roy-basmacier/bc-rust`, on top of
+`release/0.1.4alpha`. The sections up to [Verification](#verification) describe the self-test
+work as first done (AES and SHA-2); [Module integrity](#module-integrity) describes what was
+added to the same branch after it.
 
 This file is the overview. The detail lives in:
 
@@ -138,29 +143,56 @@ docs (`c10dfe8b`).
 
 ## Verification
 
+* Figures in this section are for the self-test work alone; the integrity work's are in its
+  commit messages.
 * `cargo test --workspace` (features off): 2673 passed, 0 failed, 8 ignored.
 * `bouncycastle-fips` tests with each feature combination (both, `aes` only, `sha2` only, none);
   `aes` and `sha2` `--features fips --lib`; `core --features fips`; `cargo test -p cli` with and
   without `--features fips`; the example run by hand.
 * `cargo build --workspace --all-targets --all-features`; `cargo fmt --all --check`.
-* `cargo mutants` on `bouncycastle-fips`: 9 mutants, 8 caught, 1 unviable, 0 missed. Not yet run
+* `cargo mutants` on `bouncycastle-fips` (self-tests only, before the integrity work): 9 mutants, 8 caught, 1 unviable, 0 missed. Not yet run
   on the self-test code in `core`, `aes` and `sha2`.
 * `quality_stats.sh` against variant B: code +180 lines, docstrings +171; `Err()` in core code
   607 → 597; `unwrap` in core code 1003 → 1005, both in test code under `src/`.
 * Peak stack: first power-on 1964 B, power-on once passed 40 B, AES self-test 1948 B, SHA-2
   self-test 1320 B. With `fips`, each SHA-2 hash is 8 B larger.
 
+## Module integrity
+
+Added to this branch after the self-tests; designed in the module-integrity issue ("per-crate
+source HMACs, a module HMAC over their table, and a binary HMAC").
+
+* **Boundary.** The module is the normal-dependency closure of aes, ascon, hmac, hkdf, sha3, ec,
+  ecdsa and eccdh: 15 crates (`aes`, `ascon`, `cipher`, `concatkdf`, `core`, `ec`, `eccdh`,
+  `ecdsa`, `hkdf`, `hmac`, `rng`, `sha2`, `sha3`, `utils`, `x963kdf`). Each has a `links` key and a
+  `build.rs` that reports its source directory and enabled features. `bouncycastle-fips` depends
+  on all of them, and its build fails if the closure and its list disagree.
+* **Source pin (module HMAC).** `build.rs` with `build-support/` HMACs each crate's sources
+  (HMAC-SHA-512, public key, CRLF normalised) into a table ordered by package name, and the table
+  into the module HMAC. Every program embeds the same table, whatever it uses.
+  `bc-rust fips-info` prints it; `dev_scripts/fips_module_hmac.py` recomputes it independently.
+  With the `fips-validated` feature the build and power-on hold it to
+  `src/expected_module_hmac.rs`.
+* **Software integrity test (binary HMAC).** With the `integrity` feature, power-on HMACs the
+  program's own read-only ELF segments and compares the result with a slot that
+  `bc-fips-install/` writes after linking (after `strip`, before signing). An unwritten slot fails.
+* **Power-on order.** SHA-2 CASTs, HMAC-SHA-512 CAST, binary HMAC, module HMAC
+  (`fips-validated`), AES CAST.
+* **Approved mode.** `bouncycastle-ec`'s `sm2` feature is the one non-approved switch;
+  `approved-only` fails the build if it is on and offers the approved services as concrete types
+  in `bouncycastle_fips::approved`. Design and decisions: [`APPROVED_MODE.md`](APPROVED_MODE.md).
+
 ## What is still missing
 
 Before a Security Level 1 validation (decision 9), at least:
 
-* a pre-operational **software integrity test** over everything in the boundary, and a way to do
-  one for a Rust library linked statically into an application (the hardest open question);
+* a software integrity test on non-ELF targets (Mach-O, PE), and a rule for the external crates
+  the boundary pulls in (`getrandom`, `cfg-if`, `libc`), which the source pin does not cover;
 * an approved **service indicator**, since bc-rust also ships non-approved algorithms (SM3, SM4,
   ARIA, Camellia);
-* a defined **cryptographic boundary** when each algorithm is a separate crate;
-* **CASTs for every other approved algorithm** offered: HMAC, the DRBG, SHA-3, the KDFs, ML-KEM,
-  ML-DSA; and **pairwise consistency tests** on generated key pairs;
+* **CASTs for every other approved algorithm** in the boundary: ascon, SHA-3 and SHAKE, ECDSA,
+  ECC CDH, HKDF, the X9.63 and concatenation KDFs, the Hash DRBG; and **pairwise consistency
+  tests** on generated key pairs;
 * entropy source health tests, the GCM IV rules (IG C.H), the security policy and CAVP
   certificates.
 
