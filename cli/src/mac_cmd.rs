@@ -10,6 +10,8 @@ use crate::sha3_cmd::{MAX_FIXED_OUTPUT_LEN, Strength};
 use bouncycastle::aes::{AES128Key, AES192Key, AES256Key};
 use bouncycastle::cipher::modes::{CMAC, GMAC};
 use bouncycastle::core::errors::MACError;
+// `KeyMaterialTrait` is used by the Poly1305 command alone, which `bc_approved_only` leaves out.
+#[cfg_attr(bc_approved_only, allow(unused_imports))]
 use bouncycastle::core::key_material::{KeyMaterial, KeyMaterialTrait, KeyType};
 use bouncycastle::core::symmetric_key::{
     FromAnyKeyMaterial, FromKeyMaterial, MacGenerationKey, MacVerificationKey,
