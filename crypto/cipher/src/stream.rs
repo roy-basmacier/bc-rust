@@ -125,6 +125,9 @@ where
     /// [`SymmetricCipherError::DataLimitExceeded`] if the keystream cannot cover the call; nothing
     /// is consumed in that case.
     fn apply(&mut self, data: &mut [u8]) -> Result<usize, SymmetricCipherError> {
+        // The head below uses keystream from an earlier call and makes no `apply_blocks` call, so
+        // a keystream that has stopped since (a FIPS module in its error state) is asked here.
+        self.keystream.assert_operational();
         self.accepts(data.len())?;
         let pending_len = BLOCK_LEN - self.used;
         let head_len = core::cmp::min(pending_len, data.len());

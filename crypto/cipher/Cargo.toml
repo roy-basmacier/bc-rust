@@ -74,3 +74,7 @@ path = "tests/modes/kw_tests.rs"
 [[test]]
 name = "symmetric_cipher_api_tests"
 path = "tests/modes/symmetric_cipher_api_tests.rs"
+
+[[test]]
+name = "stopped_permutation_tests"
+path = "tests/modes/stopped_permutation_tests.rs"

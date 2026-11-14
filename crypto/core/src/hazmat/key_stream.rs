@@ -5,7 +5,7 @@ use crate::traits::AlgorithmInfo;
 
 // Imports needed for docs
 #[allow(unused_imports)]
-use crate::hazmat::ElectronicCodeBook;
+use crate::hazmat::{BlockPermutation, ElectronicCodeBook};
 #[allow(unused_imports)]
 use crate::key_material::KeyType;
 #[allow(unused_imports)]
@@ -49,4 +49,15 @@ pub trait KeyStream<const INIT_DATA_LEN: usize, const BLOCK_LEN: usize>: Algorit
     /// [`Self::remaining_blocks`]. Asking for more is a programmer error, and the implementor may
     /// panic or repeat keystream.
     fn apply_blocks(&mut self, blocks: &mut [[u8; BLOCK_LEN]]);
+
+    /// Panics if this keystream may no longer be used, as [`Self::apply_blocks`] would; the
+    /// provided body never panics. A keystream over a permutation forwards to
+    /// [`BlockPermutation::assert_operational`].
+    ///
+    /// Called before keystream bytes produced by an earlier call are used, which takes no
+    /// [`Self::apply_blocks`] call.
+    ///
+    /// # Panics
+    /// Exactly when [`Self::apply_blocks`] would.
+    fn assert_operational(&self) {}
 }

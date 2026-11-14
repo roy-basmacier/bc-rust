@@ -186,7 +186,7 @@ use crate::modes::hazmat::ctr_key_stream::CtrKeyStream;
 use crate::{Decrypting, Encrypting};
 use bouncycastle_core::errors::SymmetricCipherError;
 use bouncycastle_core::hazmat::{
-    AeadDecryptMode, AeadEncryptMode, BlockPermutation, ElectronicCodeBook, Mode,
+    AeadDecryptMode, AeadEncryptMode, BlockPermutation, ElectronicCodeBook, KeyStream, Mode,
 };
 use bouncycastle_core::key_material::KeyType;
 use bouncycastle_core::security_strength::SecurityStrength;
@@ -477,6 +477,10 @@ where
     /// The byte-to-bit multiplication (`* 8`) cannot overflow: `aad_len` and `data_len` are held
     /// under [`MAX_AAD_LEN`] and [`MAX_DATA_LEN`] at every absorption.
     fn tag_block(&mut self, out: &mut Secret<[u8; 16]>) {
+        // `CIPH_K(J0)` and `H` were computed when the worker and key were made, so the tag takes
+        // no block call; a permutation that has stopped since (a FIPS module in its error state)
+        // is asked here, so neither direction releases a tag or a verdict.
+        self.ctr.keystream().assert_operational();
         self.ghash.pad_to_block();
         let aad_bits = self.aad_len * 8;
         let data_bits = self.data_len * 8;

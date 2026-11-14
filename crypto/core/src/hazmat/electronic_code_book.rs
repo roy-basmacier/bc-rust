@@ -74,6 +74,20 @@ pub trait BlockPermutation<const BLOCK_LEN: usize>: Algorithm + Sized {
     /// The inverse cipher function on four *independent* blocks, in place.
     /// See [`BlockPermutation::encrypt_4blocks`].
     fn decrypt_4blocks(&self, blocks: &mut [[u8; BLOCK_LEN]; 4]);
+
+    /// Panics if this permutation may no longer be used, as its block methods would; the
+    /// provided body never panics.
+    ///
+    /// A mode calls this before it releases output that needs no block call of its own: bytes of
+    /// a keystream block computed by an earlier call, or a tag masked with a block computed when
+    /// the worker was made. An implementor whose block methods can start refusing after
+    /// construction -- one that stops when a FIPS 140-3 module enters its error state -- overrides
+    /// it with the same check, so a worker that already exists stops at once rather than at its
+    /// next block.
+    ///
+    /// # Panics
+    /// Exactly when the block methods would.
+    fn assert_operational(&self) {}
 }
 
 /// A permutation that is built from `KEY_LEN` bytes of key material: what a key object does once,
