@@ -1,17 +1,20 @@
-//! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust's AES and SHA-2.
+//! FIPS 140-3 cryptographic algorithm self-tests (CASTs) for bc-rust's AES, SHA-2, HMAC-SHA-512,
+//! ECDSA and ECC CDH, and pair-wise consistency tests on generated EC key pairs.
 //!
 //! **This is a self-test prototype, not a validated module.** It implements the known-answer
-//! self-tests FIPS 140-3 requires for AES and SHA-2, the gates that keep those algorithms unusable
-//! until the self-tests pass, and the error state a failure enters. It is not a FIPS 140-3
+//! self-tests FIPS 140-3 requires for those algorithms, the gates that keep them unusable until
+//! the self-tests pass, the pair-wise consistency test on every ECDSA and ECC CDH key pair
+//! generated, and the error state a failure enters. It is not a FIPS 140-3
 //! validated cryptographic module, and using it does not make an application one: a validation
 //! also needs, at least, a software integrity test that is on in every build (here it is the
 //! `integrity` feature, with its post-link tool `bc-fips-install`), an approved service
 //! indicator, a defined cryptographic boundary, self-tests for every other approved algorithm
-//! offered (the DRBG, SHA-3, ML-KEM, ML-DSA, ...) and a CMVP certificate. `APPROACHES.md`
+//! offered (the DRBG, SHA-3, the KDFs, ...) and a CMVP certificate. `APPROACHES.md`
 //! beside this crate lists what is still missing.
 //!
 //! Each algorithm crate carries its own self-test and status behind its `fips` cargo feature
-//! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`); this crate turns those features
+//! (`bouncycastle_aes::self_test`, `bouncycastle_sha2::self_test`, `bouncycastle_ecdsa::self_test`,
+//! `bouncycastle_eccdh::self_test`); this crate turns those features
 //! on and runs the self-tests in order. The status of each algorithm lives in, and can only be set
 //! to passed by, the crate that implements it. A failure of any of them puts the whole module in
 //! the error state (`bouncycastle_core::fips::error_state`), which every gate reads.
@@ -20,7 +23,9 @@
 //! [`power_on_self_tests`] once at startup, and may call [`run_self_tests`] again at any time.
 //! Until an algorithm's self-test has passed, its services refuse to be created: where the
 //! constructor already returns a `Result` (an AES key from key material) it returns
-//! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`]; where it is
+//! [`bouncycastle_core::errors::SymmetricCipherError::SelfTestNotPassed`], and an EC key pair,
+//! signer, verifier or agreement `SignatureError::SelfTestNotPassed` or
+//! `KeyAgreementError::SelfTestNotPassed`; where it is
 //! infallible (`SHA256::new()`, a one-shot `hash()`) it panics, and `from_suspended` returns
 //! `SuspendableError::SelfTestNotPassed`. Once any self-test has failed, the module is in the
 //! error state until the program restarts: no service can be created, and every service that
@@ -33,13 +38,17 @@
 //! |---|---|---|
 //! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
+//! | `ecdsa` (implies `sha2`) | [`SelfTestedAlgorithm::ECDSA`] | ECDSA key generation (with a pair-wise consistency test), signing with a random and a deterministic `k`, and verification, on every curve and hash |
+//! | `eccdh` | [`SelfTestedAlgorithm::ECC_CDH`] | ECC CDH key generation (with a pair-wise consistency test) and agreement, raw and with every KDF, on every curve |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
 //! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
 //! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates, and the `approved` module offers the approved services as concrete types |
 //!
 //! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
-//! test, the module integrity check, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
-//! the integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1 [10.20]).
+//! test, the module integrity check, AES, ECDSA, ECC CDH. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
+//! the integrity test uses HMAC-SHA-512, which must pass first (ISO/IEC 19790:2012 7.10.1 [10.20]);
+//! ECDSA hashes with SHA-256, and `bouncycastle_ecdsa::self_test` refuses to start until SHA-256
+//! has passed.
 //!
 //! # The software integrity test
 //!
@@ -225,6 +234,56 @@
 //! with the HMAC function using at least one of the implemented underlying SHA-1, SHA-2, or SHA-3
 //! algorithms". HMAC-SHA-512, since it is the algorithm of the software integrity test.
 //!
+//! What, for ECDSA (IG 10.3.A Resolution 10): "for algorithms whose output vary for a given set of
+//! inputs such as DSA, ECDSA, and RSA PSS, they shall be self-tested as a CAST for signature
+//! generation and verification (as supported by the module). For a KAT, this requires the
+//! randomization parameter be fixed", and "for deterministic ECDSA signature generation, the
+//! module shall have a deterministic ECDSA digital signature generation CAST"; Note10: "the ECDSA
+//! signature generation and deterministic ECDSA signature generation methods shall each have
+//! their own CAST if both are implemented in the approved mode". Both are, so three CASTs, run as
+//! one self-test. How many curves:
+//! * Note16: "a CAST shall be performed at a minimum on any one approved modulus or curve size
+//!   that is supported by the module". Note17: "an ECDSA CAST shall be performed at a minimum, on
+//!   any one of the implemented NIST-recommended curves (and for which the CAVP certificate
+//!   includes the curve) in each of the implemented two types of fields (i.e., prime field where
+//!   GF(p), and binary field where GF(2m))". All seven curves here (P-256/384/521,
+//!   brainpoolP256r1/384r1/512r1, secp256k1) are over prime fields, so one curve, and [10.29]
+//!   makes it the smallest: P-256.
+//! * Against one CAST per curve family: GeneralNote1 asks a separate CAST for "different
+//!   implementations (e.g., separate libraries, or two instances on the same or different
+//!   hardware) of a single algorithm". Each curve has its own field arithmetic in
+//!   `bouncycastle-ec`, but ECDSA is one implementation generic over the curve, and Note17 is the
+//!   specific rule for how many curves; per-curve arithmetic is how every ECDSA implementation
+//!   works, and Note17 still asks for one per field type. A test lab that read GeneralNote1 the
+//!   other way would want a CAST on one brainpool curve and on secp256k1 as well: two more
+//!   vectors through the same code.
+//!
+//! What, for ECC CDH (IG 10.3.A Resolution 11, which defers to IG D.F): "For the ECC
+//! Diffie-Hellman CAST, it is sufficient to choose any NIST-recommended curve supported by one
+//! the module's ECC-based key shared secret computation schemes, select any point Q in the
+//! subgroup of size n of points on that curve and verify the correct computation of the
+//! x-coordinate of point P = hdQ, with 2 <= d <= n-2". One curve, P-256, by the same reasoning.
+//! The KDFs over `Z` (X9.63, concatenation, HKDF) are not covered by it ("All key derivation
+//! functions not included in the SP 800-56Arev3 CASTs shall have their own self-test").
+//!
+//! Pair-wise consistency tests (IG 10.3.A Additional Comment 1, quoting ISO/IEC 19790:2012
+//! 7.10.3.3 [10.35]): "a pairwise consistency test (PCT) shall be conducted for every generated
+//! public and private key pair for the applicable approved algorithm". At minimum the one "required
+//! by the underlying algorithm standard (e.g., SP 800-56Arev3 Section 5.6.2.1.4 option 'b' ...)",
+//! and, when the keys' use is known, "consistent with the intended use of the keys". It must be
+//! done "either prior to the first exportation or prior to the first operational use"; it is
+//! not required for imported keys. Here:
+//! * an ECDSA key pair from `bouncycastle_ecdsa::keys::keygen` is a signature pair: a
+//!   deterministic signature of a fixed message under the new private key, verified under the new
+//!   public key, before `keygen` returns;
+//! * an ECC CDH key pair from `bouncycastle_eccdh::keys::keygen` is a key-agreement pair: SP
+//!   800-56A Rev. 3 Section 5.6.2.1.4 method b, "compute dG ... Compare the result to the public
+//!   key, Q. If dG is not equal to Q, then the pair-wise consistency test fails", before `keygen`
+//!   returns.
+//!
+//! A failed pair-wise consistency test drops the pair (method b: "the tested key pair shall not be
+//! used") and enters the module error state, naming the algorithm.
+//!
 //! On failure:
 //! * A known-answer test whose output differs from the known answer "shall fail" (§7.10.3.2
 //!   [10.28]). An answer may be compared through a hash only if that hash has itself been
@@ -252,9 +311,14 @@
 //! | AES-GCM-128 encrypt | 1.a, 1.d(i), forward cipher (1.c) | CAVP `gcmtestvectors.zip` (CAVS 14.0), `bc-test-data/crypto/aes_tdes_vectors/GCM/cavp/gcmEncryptExtIV128.rsp`, `[Keylen = 128] [IVlen = 96] [PTlen = 128] [AADlen = 128] [Taglen = 128]`, `Count = 0` | Key `c939cc13397c1d37de6ae0e1cb7c423c`, IV `b3d8cc017cbb89b39e0f67e2`, PT `c3b3c41f113a31b73d9a5cd432103069`, AAD `24825602bd12a984e0092d3e448eda5f` | CT `93fe7d9e9bfd10348a5606e5cafa7354`, Tag `0032a1dc85f1c9786925a2e71d8272dd` |
 //! | AES-GCM-128 decrypt | 1.b | the same vector, decrypting CT and Tag (1.b: "the data could be the encrypted value computed during the encryption test") | Key, IV, AAD, CT, Tag as above | PT as above, tag accepted |
 //! | AES-CBC-128 decrypt | inverse cipher (1.c) | NIST SP 800-38A (2001), Appendix F.2.2 "CBC-AES128.Decrypt" | Key `2b7e151628aed2a6abf7158809cf4f3c`, IV `000102030405060708090a0b0c0d0e0f`, CT `7649abac8119b246cee98e9b12e9197d` `5086cb9b507219ee95db113a917678b2` `73bed6b8e3c1743b7116e69e22229516` `3ff1caa1681fac09120eca307586e1a7` | PT `6bc1bee22e409f96e93d7e117393172a` `ae2d8a571e03ac9c9eb76fac45af8e51` `30c81c46a35ce411e5fbc1191a0a52ef` `f69f2445df4f9b17ad2b417be66c3710` |
+//! | ECDSA SigGen | Resolution 10 (generation, `k` fixed), every curve (Notes 16, 17) | NIST ACVP-Server `gen-val/json-files/ECDSA-SigGen-FIPS186-5/internalProjection.json`, `tgId` 14 (P-256, SHA2-256), `tcId` 131 | d `a88c7a12e6cd3ec1467e96dfd230d654f786fa72efa43ca9632b8de5bd245cc3`, k `48fa4b5e8bb917973c25a0ada41f33821f68b650568eb144be5960da1c756aba`, Msg `4f1b2aba5d952e434d26b9015cb17fb4ffebd0cc7a9420f1915db0a298fd925092cd66c3d6556b30dca4c1559247dcb22dbfd78fc9ffb4b5df0110c8c50be70f7b4c483964ad74d67b99cc2f4a00f2a12575ae800c0e9cda06cb714a2ce6caa9d30b5585e80228dc3fe39d66dabb80504b3caf90b4bb1bd1d2303b8d89b3ba18` | r `642a2fea3fe1ea23ab699e5ed5568d0833b4cef596764628af9c47e23c0b400b`, s `3be682f265ae3db0d595128f35af41bc63cb0fc4d067cefdec95687ac2b3b5af` |
+//! | Deterministic ECDSA SigGen | Resolution 10, Note10 | `DetECDSA-SigGen-FIPS186-5/internalProjection.json`, `tgId` 12 (P-256, SHA2-256), `tcId` 111 | d `f69a77b56caf234368df0d69f96cf04f435f967ff39e28371c6fe7a8146b865d`, Msg `0cce12ccf2f17bda8c1192f4557a8410fd65fa8dca174bb57c9b2a1e29597b6a44ad055d23aba4928b72c67a3e0093bc3686f68de6cee2122c35779684074c538cd1f5e836ba96f4f3e05cac2977ebf332ae2576ac083c3a963c18ba9f9872e71ef0f229f4c66a5cfca3952208784e44ef172ff7ee6b437efbe9afa116939789` | r `46aeb40043eaf16df463894fc8d3161837930afbd621519f51d02d5a28012df6`, s `6255be755fcf2e6dd4b7187158dc6253dde36e81dc114e09e6f6ed778acb2128` |
+//! | ECDSA SigVer | Resolution 10 (verification), also deterministic ECDSA's (Note9) | `ECDSA-SigVer-FIPS186-5/internalProjection.json`, `tgId` 8 (P-256, SHA2-256), `tcId` 54 | Qx `93167a1567dfa211c10829919113eab92591ce6d01ca9d75283a66206cd5ca0d`, Qy `d647da83c25592c03332dc2a057e1ef61eaed77fa413275beee034512f31c97d`, Msg `cf9838b2e0e94584cfb7edb86af4ea09458ffdd81c024e54fe7899babb52977723fc7f04118528a7fb830af205786168458d85bacc0df74f9d493809904107d9aaf230cc5c2f97ca49c9e51451eb9d368129fbc32c416a53c9dc33a8507170e1975cdea2aee3924051b2fb3660c02bd1f1887a01229f368895dfb0ef6fe87d44`, r `8f3c091eec05deeca81cd5e42aa7365736011c41fdda8b4c9973962645ae59bf`, s `597b95068c79b5c6ef763eea19836a3a6478101b3fea1c0811845f7366387d65` | accepted (`testPassed: true`) |
+//! | ECC CDH | IG D.F (shared secret computation), every curve | CAVP `ecccdhtestvectors.zip` (CAVS 14.1), `KAS_ECC_CDH_PrimitiveTest.txt`, `[P-256]`, `COUNT = 0` | QCAVSx `700c48f77f56584c5cc632ca65640db91b6bacce3a4df6b42ce7cc838833d287`, QCAVSy `db71e509e3fd9b060ddb20ba5c51dcc5948d46fbf640dfe0441782cab85fa4ac`, dIUT `7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534` | ZIUT `46fc62106420ff012e54a434fbdd2d25ccc5852060561e68040dd7778997bd7b` |
 //!
 //! Not needed: a CBC encryption CAST (the forward cipher is covered by GCM encryption, 1.c), and
-//! CASTs for AES-192/256, other modes, SHA-224, SHA-384 or SHA-512/t (covered above).
+//! CASTs for AES-192/256, other modes, SHA-224, SHA-384 or SHA-512/t (covered above), and ECDSA
+//! or ECC CDH CASTs on curves other than P-256 (Notes 16 and 17, IG D.F).
 //!
 //! # Feature unification
 //!
@@ -299,10 +363,15 @@
 //!   these self-tests. HKDF and the Hash_DRBG become usable as soon as SHA-2 passes, but have no
 //!   self-test of their own here (FIPS 140-3 IG 10.3.A Resolution 6 requires them): they cannot
 //!   be claimed as approved services of a build using this crate. HMAC has its CAST, but HMAC
-//!   services are gated only on SHA-2, not on it.
+//!   services are gated only on SHA-2, not on it. Likewise the X9.63 and concatenation KDFs that
+//!   ECC CDH can derive through: the ECC CDH CAST covers the shared secret `Z` only.
+//! * **The pair-wise consistency tests cover key generation only.** A key pair decoded from bytes
+//!   is imported, which [10.35] does not cover, and is not checked; the CLI's `check-consistency`
+//!   is there for that.
 //! * **The gates are build-wide.** Cargo turns a feature on for the whole build if any one
-//!   dependency asks for it, so once anything in a program depends on this crate, every AES key
-//!   and SHA-2 hash in that program, in every library, is refused until [`power_on_self_tests`]
+//!   dependency asks for it, so once anything in a program depends on this crate, every AES key,
+//!   SHA-2 hash and ECDSA or ECC CDH key pair, signer, verifier and agreement in that program, in
+//!   every library, is refused until [`power_on_self_tests`]
 //!   has passed. Call it first, before starting threads or initialising libraries that hash or
 //!   encrypt at startup.
 //! * **One module per process, and per copy of `bouncycastle-core`.** The statuses and the error
@@ -314,7 +383,8 @@
 //!   `panic = "abort"` that ends the process; under unwinding, code that catches the panic must not
 //!   treat the operation as having produced output.
 //! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
-//!   that any crate can report a failure (a pairwise consistency test, later). Nothing can clear
+//!   that any crate can report a failure (the ECDSA and ECC CDH pair-wise consistency tests do).
+//!   Nothing can clear
 //!   it or record a pass, but any code in the process can stop every gated algorithm with it.
 //! * **The integrity test detects corruption, not an attacker.** Its key is public and its value
 //!   sits in the binary it checks, so whoever can rewrite a segment can rewrite the value. It
@@ -338,6 +408,10 @@ use bouncycastle_core::fips::error_state;
 
 #[cfg(feature = "aes")]
 use bouncycastle_aes as aes;
+#[cfg(feature = "eccdh")]
+use bouncycastle_eccdh as eccdh;
+#[cfg(feature = "ecdsa")]
+use bouncycastle_ecdsa as ecdsa;
 #[cfg(feature = "sha2")]
 use bouncycastle_sha2 as sha2;
 
@@ -365,7 +439,9 @@ use bouncycastle_ascon as _;
 use bouncycastle_cipher as _;
 use bouncycastle_concatkdf as _;
 use bouncycastle_ec as _;
+#[cfg(not(feature = "eccdh"))]
 use bouncycastle_eccdh as _;
+#[cfg(not(feature = "ecdsa"))]
 use bouncycastle_ecdsa as _;
 use bouncycastle_hkdf as _;
 use bouncycastle_rng as _;
@@ -375,7 +451,7 @@ use bouncycastle_x963kdf as _;
 
 /// The algorithms whose self-tests this build runs, in the order they run: those of the
 /// enabled cargo features, hashes first, then HMAC-SHA-512, then the software integrity test and
-/// the module integrity check.
+/// the module integrity check, then AES, ECDSA and ECC CDH.
 pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     #[cfg(feature = "sha2")]
     SelfTestedAlgorithm::SHA256,
@@ -389,6 +465,10 @@ pub const SELF_TESTED: &[SelfTestedAlgorithm] = &[
     SelfTestedAlgorithm::ModuleIntegrity,
     #[cfg(feature = "aes")]
     SelfTestedAlgorithm::AES,
+    #[cfg(feature = "ecdsa")]
+    SelfTestedAlgorithm::ECDSA,
+    #[cfg(feature = "eccdh")]
+    SelfTestedAlgorithm::ECC_CDH,
 ];
 
 /// One self-test entry point: an algorithm crate's, or one of this crate's own.
@@ -421,6 +501,11 @@ const CRATES: &[Crate] = &[
     },
     #[cfg(feature = "aes")]
     Crate { algorithms: &[SelfTestedAlgorithm::AES], self_test: aes::self_test },
+    // ECDSA hashes with SHA-256, which has passed by now.
+    #[cfg(feature = "ecdsa")]
+    Crate { algorithms: &[SelfTestedAlgorithm::ECDSA], self_test: ecdsa::self_test },
+    #[cfg(feature = "eccdh")]
+    Crate { algorithms: &[SelfTestedAlgorithm::ECC_CDH], self_test: eccdh::self_test },
 ];
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] that has not passed yet. Call once at
@@ -466,6 +551,10 @@ pub fn self_test_status(algorithm: SelfTestedAlgorithm) -> SelfTestStatus {
         SelfTestedAlgorithm::ModuleIntegrity => module_table::validated::status(),
         #[cfg(feature = "aes")]
         SelfTestedAlgorithm::AES => aes::self_test_status(),
+        #[cfg(feature = "ecdsa")]
+        SelfTestedAlgorithm::ECDSA => ecdsa::self_test_status(),
+        #[cfg(feature = "eccdh")]
+        SelfTestedAlgorithm::ECC_CDH => eccdh::self_test_status(),
         _ => SelfTestStatus::NotRun,
     }
 }

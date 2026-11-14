@@ -21,5 +21,11 @@ fn self_tested_follows_the_features_hashes_first() {
     if cfg!(feature = "aes") {
         expected.push(SelfTestedAlgorithm::AES);
     }
+    if cfg!(feature = "ecdsa") {
+        expected.push(SelfTestedAlgorithm::ECDSA);
+    }
+    if cfg!(feature = "eccdh") {
+        expected.push(SelfTestedAlgorithm::ECC_CDH);
+    }
     assert_eq!(SELF_TESTED, expected.as_slice());
 }

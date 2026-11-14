@@ -279,6 +279,8 @@ fn the_toolchain_record() {
         ("aes", cfg!(feature = "aes")),
         ("approved-only", cfg!(feature = "approved-only")),
         ("default", cfg!(feature = "default")),
+        ("eccdh", cfg!(feature = "eccdh")),
+        ("ecdsa", cfg!(feature = "ecdsa")),
         ("fips-validated", cfg!(feature = "fips-validated")),
         ("integrity", cfg!(feature = "integrity")),
         ("sha2", cfg!(feature = "sha2")),
@@ -306,6 +308,10 @@ fn the_crate_features_in_the_record() {
     // The algorithm crates' `fips` features that this crate's own features turn on.
     let sha2 = t.crate_features.iter().find(|c| c.package == "bouncycastle-sha2").unwrap();
     assert_eq!(sha2.features.contains(&"fips"), cfg!(feature = "sha2"));
+    let ecdsa = t.crate_features.iter().find(|c| c.package == "bouncycastle-ecdsa").unwrap();
+    assert_eq!(ecdsa.features.contains(&"fips"), cfg!(feature = "ecdsa"));
+    let eccdh = t.crate_features.iter().find(|c| c.package == "bouncycastle-eccdh").unwrap();
+    assert_eq!(eccdh.features.contains(&"fips"), cfg!(feature = "eccdh"));
 }
 
 /// With `fips-validated`, power-on checks the module HMAC against the published constant and it

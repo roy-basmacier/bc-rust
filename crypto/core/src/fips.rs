@@ -182,8 +182,10 @@ impl Drop for FailOnUnwind<'_> {
 /// the software integrity test.
 ///
 /// One algorithm's self-test covers every variant of it the library offers: [`Self::AES`] covers
-/// all AES modes and key sizes, [`Self::SHA256`] covers SHA-224 and SHA-256, and [`Self::SHA512`]
-/// covers SHA-384, SHA-512, SHA-512/224 and SHA-512/256.
+/// all AES modes and key sizes, [`Self::SHA256`] covers SHA-224 and SHA-256, [`Self::SHA512`]
+/// covers SHA-384, SHA-512, SHA-512/224 and SHA-512/256, and [`Self::ECDSA`] and
+/// [`Self::ECC_CDH`] cover every curve. The pair-wise consistency test on a key pair those two
+/// generate is a conditional self-test of the same algorithm, so its failure names it too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SelfTestedAlgorithm {
@@ -202,6 +204,12 @@ pub enum SelfTestedAlgorithm {
     /// Not an algorithm: the check that the module HMAC recomputed from the source table embedded
     /// in the program equals the published constant of a validated version of the module.
     ModuleIntegrity,
+    /// ECDSA (FIPS 186-5): signature generation with a random and with a deterministic `k`, and
+    /// verification, on every curve.
+    ECDSA,
+    /// The ECC CDH primitive (SP 800-56A Rev. 3 Section 5.7.1.2), on every curve.
+    #[allow(non_camel_case_types)]
+    ECC_CDH,
 }
 
 impl SelfTestedAlgorithm {
@@ -211,14 +219,18 @@ impl SelfTestedAlgorithm {
     /// 10.3.A, GeneralNote7) only ever uses a hash that has already passed. HMAC-SHA-512 follows
     /// SHA-512, and the software integrity test follows HMAC-SHA-512, the algorithm it uses
     /// (ISO/IEC 19790:2012 7.10.1 [10.20], as FIPS 140-3 IG 10.2.A quotes it). The module
-    /// integrity check, also an HMAC-SHA-512, follows the software integrity test.
-    pub const ALL: [Self; 6] = [
+    /// integrity check, also an HMAC-SHA-512, follows the software integrity test. ECDSA hashes
+    /// its messages with SHA-256 and keys its deterministic `k` with HMAC-SHA-256, so it follows
+    /// the hashes too.
+    pub const ALL: [Self; 8] = [
         Self::SHA256,
         Self::SHA512,
         Self::HMAC_SHA512,
         Self::SoftwareIntegrity,
         Self::ModuleIntegrity,
         Self::AES,
+        Self::ECDSA,
+        Self::ECC_CDH,
     ];
 
     /// The algorithm's position in [`Self::ALL`].
@@ -230,6 +242,8 @@ impl SelfTestedAlgorithm {
             Self::SoftwareIntegrity => 3,
             Self::ModuleIntegrity => 4,
             Self::AES => 5,
+            Self::ECDSA => 6,
+            Self::ECC_CDH => 7,
         }
     }
 
@@ -242,6 +256,8 @@ impl SelfTestedAlgorithm {
             Self::HMAC_SHA512 => "HMAC-SHA-512",
             Self::SoftwareIntegrity => "software integrity",
             Self::ModuleIntegrity => "module integrity",
+            Self::ECDSA => "ECDSA",
+            Self::ECC_CDH => "ECC CDH",
         }
     }
 }

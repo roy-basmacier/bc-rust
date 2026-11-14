@@ -1,5 +1,5 @@
 //! Before the power-on self-tests: nothing has run and every gated service refuses.
-#![cfg(any(feature = "aes", feature = "sha2"))]
+#![cfg(any(feature = "aes", feature = "sha2", feature = "eccdh"))]
 
 mod common;
 

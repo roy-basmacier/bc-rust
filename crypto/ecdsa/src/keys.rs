@@ -40,7 +40,11 @@ impl<C, H: EcdsaHash, const PK_LEN: usize> DerivePublicKey<ECDSAPublicKey<C, H>,
 where
     C: Curve<PkUncompressed = [u8; PK_LEN]>,
 {
+    /// With the `fips` feature, panics until the ECDSA self-test has passed, as a computation
+    /// with the private key that returns no error.
     fn derive_pk(&self) -> ECDSAPublicKey<C, H> {
+        #[cfg(feature = "fips")]
+        crate::self_test::assert_passed();
         let (x, y) = C::public_point(&self.d);
         ECDSAPublicKey { x, y, _hash: PhantomData }
     }
@@ -135,13 +139,27 @@ impl<C: Curve, H: EcdsaHash> Display for ECDSAPublicKey<C, H> {
 /// with the order's length): the draw is the curve's
 /// [`keygen_extra_bits`](Curve::keygen_extra_bits), Table A.2's recommended length.
 ///
+/// With the `fips` feature, the pair is refused until the ECDSA self-test has passed, and every
+/// pair passes a pair-wise consistency test (a deterministic signature under `H`, verified)
+/// before it is returned.
+///
 /// # Errors
-/// [`SignatureError::RNGError`] if the RNG is weaker than the curve or fails to deliver.
+/// * [`SignatureError::RNGError`] if the RNG is weaker than the curve or fails to deliver.
+/// * With the `fips` feature, `SignatureError::SelfTestNotPassed` until the ECDSA self-test has
+///   passed or once the module is in the error state, and
+///   [`SignatureError::ConsistencyCheckFailed`] if the new pair fails its pair-wise consistency
+///   test, which puts the module in the error state; the pair is dropped.
 pub fn keygen<C: Curve, H: EcdsaHash>(
     rng: &mut dyn RNG,
 ) -> Result<(ECDSAPublicKey<C, H>, ECDSAPrivateKey<C, H>), SignatureError> {
+    #[cfg(feature = "fips")]
+    crate::self_test::require_passed()?;
     let (d, (x, y)) = C::keygen_extra_bits(rng)?;
-    Ok((ECDSAPublicKey { x, y, _hash: PhantomData }, ECDSAPrivateKey { d, _hash: PhantomData }))
+    let (pk, sk) =
+        (ECDSAPublicKey { x, y, _hash: PhantomData }, ECDSAPrivateKey { d, _hash: PhantomData });
+    #[cfg(feature = "fips")]
+    crate::self_test::pairwise_consistency_test(&pk, &sk)?;
+    Ok((pk, sk))
 }
 
 /// Every curve's [`generate_signature_key_pair`](SignatureKeyPair::generate_signature_key_pair)

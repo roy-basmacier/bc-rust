@@ -162,10 +162,36 @@ pub struct ECDSAVerifier<'k, C: Curve, H: EcdsaHash> {
     hash: H,
 }
 
+impl<'k, C: Curve, H: EcdsaHash> ECDSASigner<'k, C, H> {
+    /// A signer with `k` already drawn, without the `fips` gate: what
+    /// [`SigningKey::create_signer`] hands out once its gate has passed, and, with a fixed `k`,
+    /// the self-test's own signer.
+    pub(crate) fn with_k(sk: &'k ECDSAPrivateKey<C, H>, k: C::Scalar) -> Self {
+        const { check_hash_fits::<C, H>() };
+        Self { sk, hash: H::default(), k }
+    }
+}
+
+impl<'k, C: Curve, H: EcdsaHash> ECDetDSASigner<'k, C, H> {
+    /// [`DeterministicSigningKey::create_signer_deterministic`] without the `fips` gate.
+    pub(crate) fn new_ungated(sk: &'k ECDSAPrivateKey<C, H>) -> Self {
+        const { check_hash_fits::<C, H>() };
+        Self { sk, hash: H::default() }
+    }
+}
+
+impl<'k, C: Curve, H: EcdsaHash> ECDSAVerifier<'k, C, H> {
+    /// [`VerifyingKey::create_verifier`] without the `fips` gate.
+    pub(crate) fn new_ungated(pk: &'k ECDSAPublicKey<C, H>) -> Self {
+        const { check_hash_fits::<C, H>() };
+        Self { pk, hash: H::default() }
+    }
+}
+
 /// FIPS 186-5 Section 6.4.1 steps 4-12, given `k` already generated (step 3) by one of Appendix
 /// A.3's methods. Returns `None` for step 11's `r = 0` or `s = 0` case; each caller acts on it
 /// as step 11 directs for its way of generating `k`.
-fn sign_with_k<C: Curve, H: EcdsaHash>(
+pub(crate) fn sign_with_k<C: Curve, H: EcdsaHash>(
     sk: &ECDSAPrivateKey<C, H>,
     e: &C::ScalarField,
     k: C::Scalar,
@@ -216,7 +242,7 @@ fn random_k<C: Curve>(rng: &mut dyn RNG) -> Result<C::Scalar, SignatureError> {
 }
 
 /// `e` from the message hash, [`hash_to_limbs`] reduced mod `n` by the scalar field's load.
-fn e_from_hash<C: Curve, H: HashAlgParams>(h: &[u8]) -> C::ScalarField {
+pub(crate) fn e_from_hash<C: Curve, H: HashAlgParams>(h: &[u8]) -> C::ScalarField {
     C::ScalarField::from_limbs(hash_to_limbs::<C, H>(h))
 }
 
@@ -228,7 +254,7 @@ fn r_or_s_is_zero<C: Curve>(r: &C::ScalarField, s: &C::ScalarField) -> bool {
 }
 
 /// The finished message hash, `H::OUTPUT_LEN` bytes of a `MAX_HASH_LEN` buffer.
-fn finish_hash<H: EcdsaHash>(hash: H) -> [u8; MAX_HASH_LEN] {
+pub(crate) fn finish_hash<H: EcdsaHash>(hash: H) -> [u8; MAX_HASH_LEN] {
     let mut h = [0u8; MAX_HASH_LEN];
     hash.do_final_out(&mut h[..H::OUTPUT_LEN]);
     h
@@ -237,7 +263,7 @@ fn finish_hash<H: EcdsaHash>(hash: H) -> [u8; MAX_HASH_LEN] {
 /// FIPS 186-5 Section 6.4.2 on the finished message hash: step 1's range check, then steps 3-9
 /// (step 2 is the hashing the caller has done). Both signer types' `do_verify_final` are this
 /// one function, since how `k` was generated does not enter verification.
-fn verify_final<C: Curve, H: EcdsaHash>(
+pub(crate) fn verify_final<C: Curve, H: EcdsaHash>(
     hash: H,
     pk: &ECDSAPublicKey<C, H>,
     sig: &[u8],
@@ -305,8 +331,9 @@ where
         rng: &mut dyn RNG,
         _ctx: Option<&[u8]>,
     ) -> Result<Self::Signer<'k>, SignatureError> {
-        const { check_hash_fits::<C, H>() };
-        Ok(ECDSASigner { sk: self, hash: H::default(), k: random_k::<C>(rng)? })
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
+        Ok(ECDSASigner::with_k(self, random_k::<C>(rng)?))
     }
 }
 
@@ -324,8 +351,9 @@ where
         &'k self,
         _ctx: Option<&[u8]>,
     ) -> Result<Self::Signer<'k>, SignatureError> {
-        const { check_hash_fits::<C, H>() };
-        Ok(ECDetDSASigner { sk: self, hash: H::default() })
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
+        Ok(ECDetDSASigner::new_ungated(self))
     }
 }
 
@@ -343,8 +371,9 @@ where
         &'k self,
         _ctx: Option<&[u8]>,
     ) -> Result<Self::Verifier<'k>, SignatureError> {
-        const { check_hash_fits::<C, H>() };
-        Ok(ECDSAVerifier { pk: self, hash: H::default() })
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
+        Ok(ECDSAVerifier::new_ungated(self))
     }
 }
 
@@ -367,6 +396,8 @@ where
     }
 
     fn do_final(self) -> Result<[u8; SIG_LEN], SignatureError> {
+        #[cfg(feature = "fips")]
+        crate::self_test::require_operational()?;
         let h = finish_hash(self.hash);
         // FIPS 186-5 Section 6.4.1 step 11: with a random `k`, `r = 0` or `s = 0` goes back to
         // step 3. `k` was drawn when this signer was created and there is no RNG here to draw
@@ -404,6 +435,8 @@ where
     }
 
     fn do_final(self) -> Result<[u8; SIG_LEN], SignatureError> {
+        #[cfg(feature = "fips")]
+        crate::self_test::require_operational()?;
         let h = finish_hash(self.hash);
         let h = &h[..H::OUTPUT_LEN];
         let k = rfc6979::generate_k::<C, H>(self.sk.scalar(), h); // step 3, Appendix A.3.3
@@ -437,6 +470,8 @@ impl<C: Curve, H: EcdsaHash> SignatureVerifier for ECDSAVerifier<'_, C, H> {
     }
 
     fn do_verify_final(self, sig: &[u8]) -> Result<(), SignatureError> {
+        #[cfg(feature = "fips")]
+        crate::self_test::require_operational()?;
         verify_final::<C, H>(self.hash, self.pk, sig)
     }
 }

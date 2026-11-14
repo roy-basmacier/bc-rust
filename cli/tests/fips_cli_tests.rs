@@ -102,7 +102,8 @@ mod fips {
             String::from_utf8(out.stdout).unwrap(),
             format!(
                 "SHA-256: Passed\nSHA-512: Passed\nHMAC-SHA-512: Passed\n\
-                 software integrity: Passed\n{module}AES: Passed\n"
+                 software integrity: Passed\n{module}AES: Passed\nECDSA: Passed\n\
+                 ECC CDH: Passed\n"
             )
         );
     }
