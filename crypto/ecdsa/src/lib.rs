@@ -198,6 +198,31 @@
 //! also the stack-usage measurement harness (see its own doc comment for the `valgrind`/`massif`
 //! invocation).
 //!
+//! # The `fips` feature
+//!
+//! With the off-by-default `fips` cargo feature the crate carries its own FIPS 140-3 known-answer
+//! self-test, `self_test()`, and `self_test_status()`: ECDSA-P256-SHA256 signature generation with
+//! a fixed `k`, deterministic signature generation and verification, against NIST ACVP FIPS 186-5
+//! vectors. One curve covers all of them (FIPS 140-3 IG 10.3.A Resolution 10, Notes 16 and 17).
+//! This is a self-test prototype, not a validated module; `bouncycastle-fips` documents the
+//! requirements and the vectors.
+//!
+//! * `keygen`, `generate_signature_key_pair`, `create_signer`, `create_signer_deterministic` and
+//!   `create_verifier` return `SignatureError::SelfTestNotPassed` until the self-test has passed,
+//!   and `derive_pk` panics. The self-test hashes with SHA-256, so the feature turns on
+//!   `bouncycastle-sha2/fips` and the SHA-2 self-tests must pass first.
+//! * Every generated key pair passes a pair-wise consistency test before `keygen` returns it: a
+//!   deterministic signature under the new private key, verified under the new public key. A
+//!   pair that fails is dropped, `keygen` returns `SignatureError::ConsistencyCheckFailed`, and
+//!   the module enters the error state.
+//! * Once the module is in the FIPS 140-3 error state (`bouncycastle_core::fips::error_state()`),
+//!   nothing new can be made, and the `do_final` / `do_verify_final` of a signer or verifier that
+//!   already exists returns `SignatureError::SelfTestNotPassed`, until the program restarts.
+//! * Decoding and encoding keys is not gated.
+//! * The feature is build-wide: if any dependency turns it on, ECDSA everywhere in the program is
+//!   gated. An application normally enables it through `bouncycastle-fips` and runs the
+//!   self-tests with `bouncycastle_fips::power_on_self_tests()` first thing in `main`.
+//!
 //! # 🚨 Security Considerations 🚨
 //!
 //! - **Everything done with the private key `d` and the accepted per-message secret `k` is
@@ -254,3 +279,8 @@ pub mod ecdsa;
 pub mod keys;
 pub mod keys_common;
 pub(crate) mod rfc6979;
+#[cfg(feature = "fips")]
+mod self_test;
+
+#[cfg(feature = "fips")]
+pub use self_test::{self_test, self_test_status};

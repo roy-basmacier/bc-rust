@@ -4,6 +4,13 @@ links = "bouncycastle_ecdsa"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# The FIPS 140-3 self-test (`self_test()`), the gates that refuse key generation, signing and
+# verification until it has passed, and the pair-wise consistency test on every generated key
+# pair. Turns on SHA-2's, since the self-test hashes with SHA-256. Off by default; turned on by
+# `bouncycastle-fips`.
+fips = ["bouncycastle-core/fips", "bouncycastle-sha2/fips"]
+
 [dependencies]
 bouncycastle-core.workspace = true
 bouncycastle-ec = { workspace = true, default-features = false }
