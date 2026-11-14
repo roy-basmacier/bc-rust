@@ -31,3 +31,28 @@ fn services_work_after_power_on_and_across_re_runs() {
     }
     assert!(held.usable().iter().all(|u| *u));
 }
+
+/// A hash suspended after power-on resumes and finishes as the original does: the gate in
+/// `from_suspended` admits a passed self-test, as the one in `new` does.
+#[cfg(feature = "sha2")]
+#[test]
+fn a_suspended_hash_resumes_after_power_on() {
+    use bouncycastle_core::traits::{Hash, Suspendable};
+    use bouncycastle_sha2::{SHA256, SHA512};
+
+    assert_eq!(power_on_self_tests(), Ok(()));
+
+    let mut sha256 = SHA256::new();
+    sha256.do_update(b"ab");
+    let mut resumed = SHA256::from_suspended(sha256.clone().suspend()).expect("SHA-256 has passed");
+    sha256.do_update(b"c");
+    resumed.do_update(b"c");
+    assert_eq!(resumed.do_final(), sha256.do_final());
+
+    let mut sha512 = SHA512::new();
+    sha512.do_update(b"ab");
+    let mut resumed = SHA512::from_suspended(sha512.clone().suspend()).expect("SHA-512 has passed");
+    sha512.do_update(b"c");
+    resumed.do_update(b"c");
+    assert_eq!(resumed.do_final(), sha512.do_final());
+}

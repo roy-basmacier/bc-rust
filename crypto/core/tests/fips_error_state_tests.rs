@@ -4,8 +4,8 @@
 #![cfg(feature = "fips")]
 
 use bouncycastle_core::fips::{
-    SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm, enter_error_state,
-    error_state,
+    SelfTestError, SelfTestStatus, SelfTestStatusCell, SelfTestedAlgorithm, assert_operational,
+    enter_error_state, error_state,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -16,6 +16,8 @@ static SHA512: SelfTestStatusCell = SelfTestStatusCell::new(SelfTestedAlgorithm:
 #[test]
 fn a_failure_enters_the_error_state_for_every_cell_for_good() {
     assert_eq!(error_state(), None);
+    // The check an existing key, worker or hash makes: nothing to refuse yet.
+    assert_operational(SelfTestedAlgorithm::AES);
     assert_eq!(SHA256.run(|| true), Ok(()));
 
     // A KAT that panics is recorded as a failure of its algorithm, not left Running.
@@ -25,6 +27,11 @@ fn a_failure_enters_the_error_state_for_every_cell_for_good() {
     // Every cell reads Failed, including one that passed and one never run.
     for cell in [&AES, &SHA256, &SHA512] {
         assert_eq!(cell.get(), SelfTestStatus::Failed);
+    }
+
+    // The check now refuses every algorithm, whichever one failed.
+    for algorithm in [SelfTestedAlgorithm::AES, SelfTestedAlgorithm::SHA256] {
+        assert!(catch_unwind(|| assert_operational(algorithm)).is_err());
     }
 
     // No cell runs its KAT again.
