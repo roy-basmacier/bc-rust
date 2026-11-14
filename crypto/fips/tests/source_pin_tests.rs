@@ -476,7 +476,8 @@ fn strings_hide_syntax() {
     assert_eq!(parse_manifest("[package]\nname = \"a\\\"#b\"\n").unwrap().name, "a\\\"#b");
     // Nor is a `package = ` key in a string, whatever surrounds it.
     for value in [r#"["x, package = 1"]"#, r#"["a\", package = 1"]"#, r#"['x, package = 1']"#] {
-        let text = format!("[package]\nname = \"x\"\n[dependencies]\ny = {{ features = {value} }}\n");
+        let text =
+            format!("[package]\nname = \"x\"\n[dependencies]\ny = {{ features = {value} }}\n");
         assert_eq!(parse_manifest(&text).unwrap().normal_deps, ["y"], "{value}");
     }
 }

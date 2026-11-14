@@ -11,7 +11,8 @@
 
 fn main() {
     // `cargo:src_dir=...` is exported to dependents as `DEP_BOUNCYCASTLE_SHA3_SRC_DIR`.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Cargo always sets CARGO_MANIFEST_DIR");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("Cargo always sets CARGO_MANIFEST_DIR");
     println!("cargo:src_dir={manifest_dir}");
 
     // `cargo:features=...` is exported as `DEP_BOUNCYCASTLE_SHA3_FEATURES`: this crate's cargo
