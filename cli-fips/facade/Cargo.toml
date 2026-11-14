@@ -18,6 +18,10 @@ bouncycastle-ascon = { path = "../../crypto/ascon" }
 bouncycastle-cipher = { path = "../../crypto/cipher" }
 bouncycastle-concatkdf = { path = "../../crypto/concatkdf" }
 bouncycastle-core = { path = "../../crypto/core" }
+# The curve markers the ECDSA and ECC CDH commands are generic over. Without its default `sm2`
+# feature, so the SM2 curve does not exist here; `bouncycastle-fips`'s build script refuses the
+# build if anything else turns it on.
+bouncycastle-ec = { path = "../../crypto/ec", default-features = false }
 bouncycastle-eccdh = { path = "../../crypto/eccdh" }
 bouncycastle-ecdsa = { path = "../../crypto/ecdsa" }
 # An encoding helper, not a cryptographic service: the shared helpers print hex.
