@@ -72,6 +72,7 @@ The four [open decisions](#open-decisions) were put to the project owner the sam
 4. **CLI: a separate build later, as recommended.** `cli`'s `fips` feature stays "a full build
    with the self-tests and integrity checks". An approved-mode `bc-rust` will be built from its
    own workspace in a later task.
+   (Done: `cli-fips/`, see "Approved-mode `bc-rust`" in CLAUDE.md.)
 
 ## What is not approved, as of `d54a9687`
 

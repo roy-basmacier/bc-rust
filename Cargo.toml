@@ -2,8 +2,9 @@
 members = ["cli", "crypto/*", "mem_usage_benches"]
 # `bouncycastle-fips` turns on the algorithm crates' `fips` features, which gate every service on
 # a self-test; inside the workspace, feature unification would turn them on for every member's
-# tests. It is its own workspace: `cargo test --manifest-path crypto/fips/Cargo.toml`.
-exclude = ["crypto/fips"]
+# tests. It is its own workspace: `cargo test --manifest-path crypto/fips/Cargo.toml`. So is the
+# approved-mode `bc-rust`, `cli-fips`, which builds it with `approved-only`.
+exclude = ["crypto/fips", "cli-fips"]
 
 [workspace.package]
 edition = "2024"
