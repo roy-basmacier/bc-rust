@@ -87,10 +87,15 @@
 //! ```
 //! use bouncycastle_fips::{power_on_self_tests, self_test_status, SelfTestStatus, SelfTestedAlgorithm};
 //!
+//! # // Under `integrity` power-on fails until `bc-fips-install` has written the slot, which a
+//! # // doctest binary never gets.
+//! # if cfg!(feature = "integrity") { return; }
 //! if let Err(e) = power_on_self_tests() {
 //!     eprintln!("FIPS 140-3 self-tests failed: {e:?}");
 //!     std::process::exit(1);
 //! }
+//! # // Without the `aes` feature AES is not compiled in, and its status is `NotRun`.
+//! # #[cfg(feature = "aes")]
 //! assert_eq!(self_test_status(SelfTestedAlgorithm::AES), SelfTestStatus::Passed);
 //! ```
 //!
@@ -100,6 +105,9 @@
 //! ```
 //! use bouncycastle_fips::{power_on_self_tests, run_self_tests, self_test_status, SELF_TESTED};
 //!
+//! # // Under `integrity` power-on fails until `bc-fips-install` has written the slot, which a
+//! # // doctest binary never gets.
+//! # if cfg!(feature = "integrity") { return; }
 //! power_on_self_tests().expect("self-tests pass");
 //! let result = run_self_tests();
 //! for algorithm in SELF_TESTED {
@@ -146,6 +154,9 @@
 //! ```
 //! use bouncycastle_fips::{module_info, module_table, power_on_self_tests};
 //!
+//! # // Under `integrity` power-on fails until `bc-fips-install` has written the slot, which a
+//! # // doctest binary never gets.
+//! # if cfg!(feature = "integrity") { return; }
 //! power_on_self_tests().expect("self-tests pass");
 //! // In the format of `bc-rust fips-info` and `dev_scripts/fips_module_hmac.py`; see ModuleInfo.
 //! let info = module_info().expect("HMAC-SHA-512 has passed its self-test");
