@@ -135,7 +135,8 @@ fn both_programs_embed_the_same_table_and_module_hmac_as_the_independent_script(
     // Built with different features of bouncycastle-fips, as the toolchain record says.
     assert!(aes_only_info.ends_with("toolchain.features aes integrity sha2\n"), "{aes_only_info}");
     assert!(
-        everything_info.ends_with("toolchain.features aes default integrity sha2\n"),
+        everything_info
+            .ends_with("toolchain.features aes default eccdh ecdsa integrity sha2\n"),
         "{everything_info}"
     );
 

@@ -24,7 +24,9 @@
 //! # Usage Examples
 //!
 //! ```
-//! # #[cfg(feature = "sha2")]
+//! # // Under `integrity` power-on fails until `bc-fips-install` has written the slot, which a
+//! # // doctest binary never gets.
+//! # if cfg!(feature = "integrity") { return; }
 //! # bouncycastle_fips::power_on_self_tests().expect("self-tests pass");
 //! use bouncycastle_core::signature_key::VerifyingKey;
 //! use bouncycastle_fips::approved::{HashDRBG_SHA512, ecdsa_p256_keygen, ecdsa_sign};

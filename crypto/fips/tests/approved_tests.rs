@@ -22,11 +22,14 @@ use bouncycastle_rng::Sp80090ADrbg;
 use bouncycastle_rng::hazmat::NewUninitialized;
 use bouncycastle_sha2::{SHA256, SHA384, SHA512};
 
-/// SHA-2's self-test, which the DRBG and ECDSA's hashes need under the `sha2` feature. Not the
-/// whole power-on, which fails under `integrity`.
+/// SHA-2's self-test, which the DRBG and ECDSA's hashes need under the `sha2` feature, then
+/// ECDSA's, which gates its key pairs and signers under the `ecdsa` feature (and needs SHA-256 to
+/// have passed). Not the whole power-on, which fails under `integrity`.
 fn power_on() {
     #[cfg(feature = "sha2")]
     bouncycastle_sha2::self_test().expect("SHA-2 self-tests pass");
+    #[cfg(feature = "ecdsa")]
+    bouncycastle_ecdsa::self_test().expect("ECDSA self-tests pass");
 }
 
 /// A Hash_DRBG instantiated from a fixed seed, so two of them produce the same output.

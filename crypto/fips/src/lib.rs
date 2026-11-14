@@ -59,9 +59,9 @@
 //! It covers the whole program, not only this module's code, because cross-crate inlining and
 //! LTO put module code inside the application's functions. [`binary_hmac`] has the format, which
 //! is a contract with that tool. **Until the tool has run on a binary, its slot is empty and
-//! power-on fails**, so the feature is off by default; the tests of this crate run with it as
-//! `cargo test --manifest-path crypto/fips/Cargo.toml --features integrity --tests` (the doc
-//! examples power on, so they fail under it).
+//! power-on fails**, so the feature is off by default. The tests of this crate run with it as
+//! `cargo test --manifest-path crypto/fips/Cargo.toml --features integrity`: they check the
+//! failure, and the doc examples that power on return early under it.
 //!
 //! # The module source pin
 //!
