@@ -151,6 +151,29 @@
 //! | brainpoolP384r1 | 2,528  | 5,712 |
 //! | brainpoolP512r1 | 4,672  | 7,600 |
 //!
+//! # The `fips` feature
+//!
+//! With the off-by-default `fips` cargo feature the crate carries its own FIPS 140-3 known-answer
+//! self-test, `self_test()`, and `self_test_status()`: the P-256 primitive against NIST CAVP
+//! `KAS_ECC_CDH_PrimitiveTest.txt`, which covers every curve (FIPS 140-3 IG D.F: "any
+//! NIST-recommended curve"). This is a self-test prototype, not a validated module;
+//! `bouncycastle-fips` documents the requirements and the vectors.
+//!
+//! * `keygen`, `generate_agreement_key_pair` and `create_agreement` (raw and with every KDF)
+//!   return `KeyAgreementError::SelfTestNotPassed` until the self-test has passed, and
+//!   `derive_pk` panics.
+//! * Every generated key pair passes SP 800-56A Rev. 3 Section 5.6.2.1.4 method b's pair-wise
+//!   consistency test (`[d]G` recomputed and compared with `Q`) before `keygen` returns it. A pair
+//!   that fails is dropped, `keygen` returns `KeyAgreementError::ConsistencyCheckFailed`, and the
+//!   module enters the error state.
+//! * Once the module is in the FIPS 140-3 error state (`bouncycastle_core::fips::error_state()`),
+//!   nothing new can be made, and `agree_out` on a worker that already exists returns
+//!   `KeyAgreementError::SelfTestNotPassed` with the buffer zeroized, until the program restarts.
+//! * Decoding and encoding keys is not gated. The KDFs have no self-test here.
+//! * The feature is build-wide: if any dependency turns it on, ECC CDH everywhere in the program
+//!   is gated. An application normally enables it through `bouncycastle-fips` and runs the
+//!   self-tests with `bouncycastle_fips::power_on_self_tests()` first thing in `main`.
+//!
 //! # 🚨 Security Considerations 🚨
 //!
 //! - **`Z` goes to a KDF and nowhere else** (SP 800-56A Rev. 3 Section 5.8): it is typed
@@ -201,3 +224,8 @@ pub mod eccdh;
 pub mod kdf;
 pub mod keys;
 pub mod keys_common;
+#[cfg(feature = "fips")]
+mod self_test;
+
+#[cfg(feature = "fips")]
+pub use self_test::{self_test, self_test_status};

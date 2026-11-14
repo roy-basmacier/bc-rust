@@ -69,6 +69,11 @@ pub(crate) fn agree_out<C, const SS_LEN: usize>(
 where
     C: Curve<FeBytes = [u8; SS_LEN]>,
 {
+    #[cfg(feature = "fips")]
+    if let Err(e) = crate::self_test::require_operational() {
+        ss.zeroize();
+        return Err(e);
+    }
     // 1. Compute the point P = h d_A Q_B. The cofactor h is 1 (the crate docs), so this is [d]Q, in
     //    constant time in d; Q passed full validation when the key was decoded.
     let q = C::Point::from_affine(peer_pk.x, peer_pk.y);
@@ -162,11 +167,14 @@ where
     where
         Self: 'k;
 
-    /// The raw primitive takes nothing beyond the key, so this never fails.
+    /// The raw primitive takes nothing beyond the key, so this fails only with the `fips`
+    /// feature, until the ECC CDH self-test has passed.
     fn create_agreement<'k>(
         &'k self,
         _params: (),
     ) -> Result<Self::Agreement<'k>, KeyAgreementError> {
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
         Ok(ECCDHAgreement { sk: self })
     }
 }
@@ -337,11 +345,14 @@ where
     where
         Self: 'k;
 
-    /// Cannot fail: the KDF validated what it was made from when it was made.
+    /// Fails only with the `fips` feature, until the ECC CDH self-test has passed: the KDF
+    /// validated what it was made from when it was made.
     fn create_agreement<'k>(
         &'k self,
         params: KdfParams<'p, D, SS_LEN>,
     ) -> Result<Self::Agreement<'k>, KeyAgreementError> {
+        #[cfg(feature = "fips")]
+        crate::self_test::require_passed()?;
         Ok(ECCDHKdfAgreement { sk: self, params })
     }
 }

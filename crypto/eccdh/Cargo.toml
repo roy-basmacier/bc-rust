@@ -4,6 +4,12 @@ links = "bouncycastle_eccdh"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# The FIPS 140-3 self-test (`self_test()`), the gates that refuse key generation and agreement
+# until it has passed, and the pair-wise consistency test on every generated key pair. Off by
+# default; turned on by `bouncycastle-fips`.
+fips = ["bouncycastle-core/fips"]
+
 [dependencies]
 bouncycastle-concatkdf.workspace = true
 bouncycastle-core.workspace = true

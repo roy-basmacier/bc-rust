@@ -26,7 +26,11 @@ impl<C, const PK_LEN: usize> DerivePublicKey<ECCDHPublicKey<C>, PK_LEN> for ECCD
 where
     C: Curve<PkUncompressed = [u8; PK_LEN]>,
 {
+    /// With the `fips` feature, panics until the ECC CDH self-test has passed, as a computation
+    /// with the private key that returns no error.
     fn derive_pk(&self) -> ECCDHPublicKey<C> {
+        #[cfg(feature = "fips")]
+        crate::self_test::assert_passed();
         let (x, y) = C::public_point(&self.0);
         ECCDHPublicKey { x, y }
     }
@@ -115,13 +119,26 @@ impl<C: Curve> Display for ECCDHPublicKey<C> {
 /// strength of s bits or more"; `s` from SP 800-57 Part 1 Rev. 5 Table 2): step 3's draw of at
 /// least `N + 64` bits is the curve's [`keygen_extra_bits`](Curve::keygen_extra_bits).
 ///
+/// With the `fips` feature, the pair is refused until the ECC CDH self-test has passed, and every
+/// pair passes SP 800-56A Rev. 3 Section 5.6.2.1.4 method b's pair-wise consistency test (`[d]G`
+/// recomputed and compared with `Q`) before it is returned.
+///
 /// # Errors
-/// [`KeyAgreementError::RNGError`] if the RNG is weaker than the curve or fails to deliver.
+/// * [`KeyAgreementError::RNGError`] if the RNG is weaker than the curve or fails to deliver.
+/// * With the `fips` feature, `KeyAgreementError::SelfTestNotPassed` until the ECC CDH self-test
+///   has passed or once the module is in the error state, and
+///   `KeyAgreementError::ConsistencyCheckFailed` if the new pair fails its pair-wise consistency
+///   test, which puts the module in the error state; the pair is dropped.
 pub fn keygen<C: Curve>(
     rng: &mut dyn RNG,
 ) -> Result<(ECCDHPublicKey<C>, ECCDHPrivateKey<C>), KeyAgreementError> {
+    #[cfg(feature = "fips")]
+    crate::self_test::require_passed()?;
     let (d, (x, y)) = C::keygen_extra_bits(rng)?;
-    Ok((ECCDHPublicKey { x, y }, ECCDHPrivateKey(d)))
+    let (pk, sk) = (ECCDHPublicKey { x, y }, ECCDHPrivateKey(d));
+    #[cfg(feature = "fips")]
+    crate::self_test::pairwise_consistency_test(&pk, &sk)?;
+    Ok((pk, sk))
 }
 
 /// Every curve's [`generate_agreement_key_pair`](AgreementKeyPair::generate_agreement_key_pair)
