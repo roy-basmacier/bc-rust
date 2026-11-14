@@ -1,8 +1,7 @@
 //! The FIPS 140-3 self-tests, with the cli's `fips` cargo feature: the power-on run every
-//! invocation makes before its subcommand (clap parses the arguments first, so `--help`,
-//! `--version` and usage errors print and exit without it; no cryptographic service is reachable
-//! that way), the `fips-self-test` subcommand that runs them again
-//! on demand, and `fips-info`.
+//! invocation makes before anything else, argument parsing included (so `--help`, `--version`
+//! and usage errors also need a passing power-on), the `fips-self-test` subcommand that runs the
+//! CASTs again on demand, and `fips-info`.
 //!
 //! The power-on run is a function of the process: each `bc-rust` invocation is a new process,
 //! so each runs the self-tests once at startup, and "rebooting" the module is running the command
@@ -21,14 +20,8 @@ use std::process::exit;
 const SELF_TEST_FAILED: i32 = 3;
 
 /// Runs the power-on self-tests and exits with [`SELF_TEST_FAILED`], saying which algorithm
-/// failed, if they do not pass; no subcommand runs after a failure.
-///
-/// `simulate_failure` first puts the module in the error state as a failing AES self-test
-/// would, so that the failure path can be exercised end to end. It can only stop the module.
-pub fn power_on(simulate_failure: bool) {
-    if simulate_failure {
-        bouncycastle::core::fips::enter_error_state(SelfTestedAlgorithm::AES);
-    }
+/// failed, if they do not pass; nothing else runs after a failure, not even argument parsing.
+pub fn power_on() {
     if let Err(e) = power_on_self_tests() {
         eprintln!("Error: FIPS 140-3 power-on self-tests failed: {}", describe(e));
         eprintln!("No command was run; every self-tested algorithm is refused in this process.");
@@ -37,7 +30,8 @@ pub fn power_on(simulate_failure: bool) {
 }
 
 /// `fips-self-test`: runs every CAST again (the integrity tests ran at this process's power-on)
-/// and prints one `<algorithm>: <status>` line per self-tested algorithm on stdout. Exits with [`SELF_TEST_FAILED`] if any fails.
+/// and prints one `<algorithm>: <status>` line per self-tested algorithm on stdout. Exits with
+/// [`SELF_TEST_FAILED`] if any fails.
 pub fn fips_self_test_cmd() {
     let result = run_self_tests();
     for algorithm in SELF_TESTED {

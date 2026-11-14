@@ -38,10 +38,18 @@ fn ok(out: Output) -> Vec<u8> {
 }
 
 /// As built, the slot is empty: the binary refuses to run, whatever the command, and says why.
+/// Power-on comes before argument parsing, so help, the version and a usage error are refused too.
 #[test]
 fn without_bc_fips_install_no_command_runs() {
-    for args in [&["sha256"][..], &["aes128-gcm", "--direction", "encrypt"][..], &["fips-info"][..]]
-    {
+    for args in [
+        &["sha256"][..],
+        &["aes128-gcm", "--direction", "encrypt"][..],
+        &["fips-info"][..],
+        &["--help"][..],
+        &["--version"][..],
+        &["no-such-command"][..],
+        &[][..],
+    ] {
         let out = run_program(Path::new(BC_RUST), args, b"abc");
         assert_eq!(out.status.code(), Some(SELF_TEST_FAILED), "{args:?}");
         assert!(out.stdout.is_empty(), "{args:?}: no output after a failure");
@@ -181,15 +189,22 @@ fn fips_info_records_an_approved_only_build() {
     assert!(!printed.contains("sm2"), "{printed}");
 }
 
+/// The approved-mode build has no failure hook: the full `bc-rust`'s hidden flag is an unknown
+/// argument here, rejected by clap after a passing power-on.
 #[test]
-fn a_failed_power_on_runs_no_command_and_exits_non_zero() {
-    for args in
-        [&["--fips-simulate-failure", "sha256"][..], &["--fips-simulate-failure", "fips-info"][..]]
-    {
-        let out = run(args, b"abc");
-        assert_eq!(out.status.code(), Some(SELF_TEST_FAILED), "{args:?}");
-        assert!(out.stdout.is_empty(), "{args:?}: no output after a failure");
-    }
+fn there_is_no_failure_hook() {
+    let out = run(&["--fips-simulate-failure", "sha256"], b"abc");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unexpected argument '--fips-simulate-failure'"), "{stderr}");
+}
+
+/// Once installed, help and the version print as usual.
+#[test]
+fn help_and_version_print_after_power_on() {
+    let version = String::from_utf8(ok(run(&["--version"], b""))).unwrap();
+    assert!(version.starts_with("bc-rust"), "{version}");
 }
 
 /// One byte of the installed binary's HMAC slot changed: the program no longer runs.

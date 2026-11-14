@@ -65,7 +65,9 @@ struct Cli {
     hex_input: bool,
 
     /// Test hook: put the module in the FIPS 140-3 error state, as a failing AES self-test would,
-    /// before the power-on self-tests run. It can only stop the module.
+    /// before the power-on self-tests run. It can only stop the module. Power-on runs before clap,
+    /// so `fips_simulate_failure_requested` finds the flag; it is declared here so that it parses.
+    /// Not in the approved-mode build.
     #[cfg(feature = "fips")]
     #[arg(long, global = true, hide = true)]
     fips_simulate_failure: bool,
@@ -5782,13 +5784,29 @@ fn main() {
         .expect("CLI thread panicked");
 }
 
+/// Whether the hidden `--fips-simulate-failure` flag is among the arguments, before any `--`. Read
+/// from the raw arguments because power-on runs before clap parses them. A false match (the
+/// flag's text as another option's value) can only stop the module.
+#[cfg(feature = "fips")]
+fn fips_simulate_failure_requested() -> bool {
+    std::env::args_os().skip(1).take_while(|a| a != "--").any(|a| a == "--fips-simulate-failure")
+}
+
 fn run() {
+    // FIPS 140-3: the self-tests, the software integrity test among them, pass before anything
+    // else runs, argument parsing included, or nothing runs: `--help`, `--version` and usage
+    // errors need a passing power-on too.
+    #[cfg(feature = "fips")]
+    {
+        if fips_simulate_failure_requested() {
+            bouncycastle::core::fips::enter_error_state(
+                bouncycastle_fips::SelfTestedAlgorithm::AES,
+            );
+        }
+        fips_cmd::power_on();
+    }
     let cli = Cli::parse();
     helpers::set_hex_input(cli.hex_input);
-    // FIPS 140-3: the self-tests, the software integrity test among them, pass before any
-    // subcommand runs, or nothing runs.
-    #[cfg(feature = "fips")]
-    fips_cmd::power_on(cli.fips_simulate_failure);
 
     match &cli.subcommands {
         Some(Subcommands::AES128_CBC { direction, key, key_file, iv, iv_file, x }) => {

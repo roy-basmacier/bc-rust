@@ -12,11 +12,11 @@
 //! and ML-DSA (outside the module boundary, so outside its approved services), the hex and base64
 //! encoders (not services), and the HKDF and HMAC pairings with SM3.
 //!
-//! Every invocation that reaches a subcommand runs the FIPS 140-3 power-on self-tests first, the
-//! software integrity test among them, and no subcommand runs if they fail. clap parses the
-//! arguments before that, so `--help`, `--version` and usage errors print and exit without
-//! power-on; no cryptographic service is reachable that way. The binary refuses to run a
-//! subcommand until `bc-fips-install` has written its binary HMAC into it.
+//! Every invocation runs the FIPS 140-3 power-on self-tests first, the software integrity test
+//! among them, before it parses its arguments, and nothing else runs if they fail: `--help`,
+//! `--version` and usage errors need a passing power-on too. The binary refuses to run at all
+//! until `bc-fips-install` has written its binary HMAC into it. It has no test hook to simulate a
+//! failure; a binary `bc-fips-install` never ran on, or one changed after it, fails for real.
 
 #[path = "../../cli/src/ascon_cmd.rs"]
 mod ascon_cmd;
@@ -84,11 +84,6 @@ struct Cli {
     /// are always hex. Without this flag a file is its raw bytes, however hex-like they look.
     #[arg(long, global = true)]
     hex_input: bool,
-
-    /// Test hook: put the module in the FIPS 140-3 error state, as a failing AES self-test would,
-    /// before the power-on self-tests run. It can only stop the module.
-    #[arg(long, global = true, hide = true)]
-    fips_simulate_failure: bool,
 
     #[command(subcommand)]
     subcommands: Option<Subcommands>,
@@ -2947,11 +2942,12 @@ fn main() {
 }
 
 fn run() {
+    // FIPS 140-3: the self-tests, the software integrity test among them, pass before anything
+    // else runs, argument parsing included, or nothing runs: `--help`, `--version` and usage
+    // errors need a passing power-on too.
+    fips_cmd::power_on();
     let cli = Cli::parse();
     helpers::set_hex_input(cli.hex_input);
-    // FIPS 140-3: the self-tests, the software integrity test among them, pass before any
-    // subcommand runs, or nothing runs.
-    fips_cmd::power_on(cli.fips_simulate_failure);
 
     match &cli.subcommands {
         Some(Subcommands::AES128_CBC { direction, key, key_file, iv, iv_file, x }) => {

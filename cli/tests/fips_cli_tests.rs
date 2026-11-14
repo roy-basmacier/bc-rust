@@ -79,9 +79,16 @@ mod fips {
         fs::write(path, bytes).unwrap();
     }
 
-    /// Asserts that `program` ran no command and reported a failed integrity test.
+    /// Asserts that `program` ran no command and reported a failed integrity test. Power-on comes
+    /// before argument parsing, so help, the version and a usage error are refused too.
     fn assert_refuses_to_run(program: &Path) {
-        for args in [&["sha256"][..], &["fips-info"][..]] {
+        for args in [
+            &["sha256"][..],
+            &["fips-info"][..],
+            &["--help"][..],
+            &["--version"][..],
+            &["no-such-command"][..],
+        ] {
             let out = run_program(program, args, b"abc");
             assert_eq!(out.status.code(), Some(SELF_TEST_FAILED), "{args:?}");
             assert!(out.stdout.is_empty(), "{args:?}: no output after a failure");
@@ -231,6 +238,10 @@ mod fips {
             &["--fips-simulate-failure", "sha256"][..],
             &["--fips-simulate-failure", "fips-self-test"][..],
             &["--fips-simulate-failure", "sm3"][..],
+            // Found before clap parses the arguments, wherever it is.
+            &["sha256", "--fips-simulate-failure"][..],
+            &["--fips-simulate-failure", "--help"][..],
+            &["--fips-simulate-failure", "no-such-command"][..],
         ] {
             let out = run(args, b"abc");
             assert_eq!(out.status.code(), Some(SELF_TEST_FAILED), "{args:?}");
@@ -244,6 +255,13 @@ mod fips {
                 "{args:?}: {stderr}"
             );
         }
+    }
+
+    /// After `--`, the flag is not the hook: power-on passes and clap rejects the argument.
+    #[test]
+    fn the_failure_hook_is_not_looked_for_after_a_double_dash() {
+        let out = run(&["sha256", "--", "--fips-simulate-failure"], b"abc");
+        assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
     }
 
     #[test]

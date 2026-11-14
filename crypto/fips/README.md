@@ -94,10 +94,9 @@ the gate can be trusted to mean.
 * **`bouncycastle-fips`**: turns the features on and offers `power_on_self_tests()`,
   `run_self_tests()` and `self_test_status()`. It is excluded from the root workspace so that
   `cargo test --workspace` never runs gated.
-* **`bc-rust` CLI** (`fips` feature): every invocation that reaches a subcommand runs the
-  power-on self-tests first and exits with status 3 if they fail (`--help`, `--version` and
-  usage errors exit from argument parsing, before power-on and before any cryptographic
-  service); `bc-rust fips-self-test` re-runs the CASTs and prints each algorithm's status, and
+* **`bc-rust` CLI** (`fips` feature): every invocation runs the power-on self-tests first,
+  before it parses its arguments, and exits with status 3 if they fail (so `--help`, `--version`
+  and usage errors need them to pass too); `bc-rust fips-self-test` re-runs the CASTs and prints each algorithm's status, and
   `bc-rust fips-info` prints the module table. Without the feature the CLI is unchanged. The
   approved-mode build is a separate binary, `cli-fips/`.
 
