@@ -79,7 +79,10 @@ fn full_and_approved_builds_embed_the_same_table() {
     assert_eq!(
         differing,
         [
-            ("features aes,default,sha2", "features aes,approved-only,default,sha2"),
+            (
+                "features aes,default,eccdh,ecdsa,sha2",
+                "features aes,approved-only,default,eccdh,ecdsa,sha2",
+            ),
             ("crate-features bouncycastle-ec sm2", "crate-features bouncycastle-ec "),
         ]
     );

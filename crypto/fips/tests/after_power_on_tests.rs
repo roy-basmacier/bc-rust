@@ -1,6 +1,6 @@
 //! After the power-on self-tests have passed: every service works, a second power-on call is a
 //! no-op, and an on-demand re-run passes and keeps the services usable.
-#![cfg(all(any(feature = "aes", feature = "sha2"), not(feature = "integrity")))]
+#![cfg(all(any(feature = "aes", feature = "sha2", feature = "eccdh"), not(feature = "integrity")))]
 
 mod common;
 
@@ -29,5 +29,5 @@ fn services_work_after_power_on_and_across_re_runs() {
         assert!(all_passed());
         common::assert_services(None);
     }
-    assert_eq!(held.usable(), [true; 2]);
+    assert!(held.usable().iter().all(|u| *u));
 }
