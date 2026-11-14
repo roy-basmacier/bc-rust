@@ -9,10 +9,9 @@ integrity test over the compiled program (the binary HMAC), with an approved-mod
 leaves SM2 out. A FIPS 140-3 validation needs more (see
 [What is still missing](#what-is-still-missing)).
 
-Branch: `feature/fips-kats` on `github.com/roy-basmacier/bc-rust`, on top of
-`release/0.1.4alpha`. The sections up to [Verification](#verification) describe the self-test
+Based on `release/0.1.4alpha`. The sections up to [Verification](#verification) describe the self-test
 work as first done (AES and SHA-2); [Module integrity](#module-integrity) describes what was
-added to the same branch after it.
+added after it.
 
 This file is the overview. The detail lives in:
 
@@ -21,7 +20,6 @@ This file is the overview. The detail lives in:
 | The two layouts explored, measured, with every finding and the nine decisions | [`APPROACHES.md`](APPROACHES.md) |
 | The final design: usage, requirements (IG quotes), vectors, memory, security considerations | the crate docs, [`src/lib.rs`](src/lib.rs) (`cargo doc --manifest-path crypto/fips/Cargo.toml --open`) |
 | The application flow, runnable | [`examples/crypto_officer.rs`](examples/crypto_officer.rs) |
-| Why each change was made | the commit messages: `git log release/0.1.4alpha..feature/fips-kats` |
 
 ## The task
 
@@ -77,7 +75,8 @@ the gate can be trusted to mean.
 5. A failure of any self-test stops **all** keys and hashes, existing and new, module-wide.
 6. `SHA256::new()` keeps panicking before power-on; `from_suspended` gets an error variant.
 7. Keep a cargo feature (not a `--cfg`) for now.
-8. Scope stays AES and SHA-2 only (no HMAC CAST yet).
+8. Scope stays AES and SHA-2 only (no HMAC CAST yet). Since then HMAC-SHA-512 got a CAST with
+   the integrity work, and ECDSA and ECC CDH theirs; HKDF and the DRBG still have none.
 9. A FIPS 140-3 validation at Security Level 1 is the goal.
 
 ## The final design
@@ -89,14 +88,18 @@ the gate can be trusted to mean.
 * **`bouncycastle-aes`, `bouncycastle-sha2`** (`fips` feature): each holds its KAT vectors and a
   private status cell. `self_test()` runs the KAT; the gates refuse creation until `Passed`
   (AES: `SymmetricCipherError::SelfTestNotPassed`; SHA-2: a panic in the infallible `new()`,
-  `SuspendableError::SelfTestNotPassed` from `from_suspended`), and after a failure every
-  operation on an existing key, worker or hash panics.
+  `SuspendableError::SelfTestNotPassed` from `from_suspended`), and after a failure the gated
+  operations of an existing key, worker or hash panic. For AES those are the block operations
+  only, which leaves a gap (see [What is still missing](#what-is-still-missing)).
 * **`bouncycastle-fips`**: turns the features on and offers `power_on_self_tests()`,
   `run_self_tests()` and `self_test_status()`. It is excluded from the root workspace so that
   `cargo test --workspace` never runs gated.
-* **`bc-rust` CLI** (`fips` feature): every invocation runs the power-on self-tests first and
-  exits with status 3 if they fail; `bc-rust fips-self-test` re-runs them and prints each
-  algorithm's status. Without the feature the CLI is unchanged.
+* **`bc-rust` CLI** (`fips` feature): every invocation that reaches a subcommand runs the
+  power-on self-tests first and exits with status 3 if they fail (`--help`, `--version` and
+  usage errors exit from argument parsing, before power-on and before any cryptographic
+  service); `bc-rust fips-self-test` re-runs them and prints each algorithm's status, and
+  `bc-rust fips-info` prints the module table. Without the feature the CLI is unchanged. The
+  approved-mode build is a separate binary, `cli-fips/`.
 
 Application flow, as in the example:
 
@@ -120,7 +123,8 @@ SHA-224, and the SHA-512 CAST covers SHA-384 and SHA-512/t (IG 10.3.A).
 
 ## Findings: what convergence did with each
 
-Finding ids are those of [`APPROACHES.md`](APPROACHES.md#findings).
+Finding ids are those of [`APPROACHES.md`](APPROACHES.md#findings). The commit hashes are those
+of the PR branch before the squash merge.
 
 | Finding | Problem | Outcome | Commit |
 |---|---|---|---|
@@ -131,10 +135,10 @@ Finding ids are those of [`APPROACHES.md`](APPROACHES.md#findings).
 | B-4 | an overlapping power-on call returned an error; single-feature builds untested | **fixed**: waits and reports; scenarios run per feature | `f1375b29` |
 | B-5 | a match arm in `bouncycastle-fips` never tested | **gone**: the arm no longer exists | `b3f5ebf4` |
 | S-1 | services could be created during the first run | **fixed**: gate admits only `Passed`; KATs run ungated (decision 3) | `65860d9f` |
-| S-2 | only creation was gated | **fixed**: existing keys, workers, hashes stop too (decision 5) | `278f8eb7` |
+| S-2 | only creation was gated | **mostly fixed**: existing keys, workers, hashes stop at their next gated operation (decision 5); an AES worker's operations that need no new block do not | `278f8eb7` |
 | S-3 | a failure mid-run made a KAT panic | **fixed**: KATs never pass through a gate | `65860d9f` |
 | S-4 | algorithm crates' own test suites fail with `fips` on | **open**, documented | — |
-| S-5 | HMAC, HKDF, DRBG usable with no CAST | **out of scope** (decision 8), documented | — |
+| S-5 | HMAC, HKDF, DRBG usable with no CAST | **partly done**: HMAC-SHA-512 has a CAST (added with the integrity work); HKDF and the DRBG have none, documented | — |
 | S-6 | `cargo mutants` could not run on `bouncycastle-fips` | **fixed**: profile added, `--in-place` documented | `438b8ac9` |
 | decision 6 | `from_suspended` panicked | **fixed**: `SuspendableError::SelfTestNotPassed` | `ece224f7` |
 | from A | every byte of every vector must matter | **adopted** in the unit tests | `68cbdacd` |
@@ -182,7 +186,7 @@ source HMACs, a module HMAC over their table, and a binary HMAC").
   program's own read-only ELF segments and compares the result with a slot that
   `bc-fips-install/` writes after linking (after `strip`, before signing). An unwritten slot fails.
 * **Power-on order.** SHA-2 CASTs, HMAC-SHA-512 CAST, binary HMAC, module HMAC
-  (`fips-validated`), AES CAST.
+  (`fips-validated`), then the AES, ECDSA and ECC CDH CASTs.
 * **Approved mode.** `bouncycastle-ec`'s `sm2` feature is the one non-approved switch;
   `approved-only` fails the build if it is on and offers the approved services as concrete types
   in `bouncycastle_fips::approved`. Design and decisions: [`APPROVED_MODE.md`](APPROVED_MODE.md).
@@ -195,12 +199,13 @@ a private status, gates, and a pair-wise consistency test (PCT) in `keygen`; `bo
 runs them after AES (features `ecdsa` and `eccdh`, both default).
 
 * **CASTs.** ECDSA: signature generation with `k` fixed, deterministic signature generation, and
-  verification (IG 10.3.A Resolution 10 and Note10), on ECDSA-P256-SHA256, from NIST ACVP
+  verification (IG 10.3.A Resolution 10 and Note10), on ECDSA-P256-SHA256, from NIST ACVP-Server
+  (RELEASE/v1.1.0.39)
   `ECDSA-SigGen-FIPS186-5` tcId 131, `DetECDSA-SigGen-FIPS186-5` tcId 111 and
   `ECDSA-SigVer-FIPS186-5` tcId 54. ECC CDH: the P-256 primitive, CAVP
   `KAS_ECC_CDH_PrimitiveTest.txt` `[P-256]` `COUNT = 0` (IG D.F).
-* **One curve per algorithm, not one per curve family.** Note16 and Note17 ask for one curve per
-  field type, and every curve here is prime-field; IG D.F asks for "any NIST-recommended curve".
+* **One curve per algorithm, not one per curve family.** Note16 asks for any one curve size and
+  Note17 for one curve per field type, and every curve here is prime-field; IG D.F asks for "any NIST-recommended curve".
   P-256 is the smallest supported ([10.29]). The case for more (GeneralNote1, per-curve field
   arithmetic) is in the crate docs' Requirements section.
 * **PCTs.** ECDSA: a deterministic signature under the new key, verified (the signature use the
@@ -222,7 +227,23 @@ Before a Security Level 1 validation (decision 9), at least:
   the X9.63 and concatenation KDFs, the Hash DRBG (ECDSA, ECC CDH and their pair-wise
   consistency tests are done; see [ECDSA and ECC CDH](#ecdsa-and-ecc-cdh));
 * entropy source health tests, the GCM IV rules (IG C.H), the security policy and CAVP
-  certificates.
+  certificates;
+* **stopping an existing AES worker completely**: the error-state check is in the AES block
+  operations only, so a GCM or GMAC worker can still absorb data and produce or check its tag
+  (`CIPH_K(J0)` and `H` are computed at creation), and a CTR, CFB or GCM worker can use up to 15
+  bytes of keystream it has already buffered;
+* **gating `bouncycastle-ec`**: it is inside the boundary, and its public `Curve` trait methods
+  (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
+  `shamir_multiply`) reach key generation and the ECC CDH primitive with no CAST and no PCT;
+* inhibiting output while `run_self_tests` re-runs the software integrity test (IG 10.3.E
+  Resolution 5 exempts only the CAST re-runs; see the crate docs' Requirements section);
+* a module HMAC for the crates as published: `cargo package` rewrites `Cargo.toml`, which the
+  per-crate source HMAC covers, so a crates.io package gives a different value from a checkout.
+
+Costs of the design to know about: the `links` keys mean two semver-incompatible versions of a
+boundary crate cannot be in one build graph, and every user of the 15 crates compiles a small
+build script for each; and `cli`'s optional `bouncycastle-fips` dependency brings the four `=`
+pins into the root workspace's lock resolution even with `fips` off.
 
 Smaller follow-ups: decide on lazy self-tests on first use (decision 4); let the algorithm crates'
 own test suites run with `fips` on (S-4); revisit the cargo feature against a build-wide `--cfg`
@@ -235,6 +256,9 @@ Full list and references: [`APPROACHES.md`](APPROACHES.md#what-a-fips-140-3-modu
 ```sh
 cargo test --manifest-path crypto/fips/Cargo.toml                    # the fips crate
 cargo run --example crypto_officer --manifest-path crypto/fips/Cargo.toml
-cargo run -p cli --features fips -- fips-self-test                   # CLI: prints each status
+cargo build --release -p cli --features fips                         # CLI; exits 3 until installed:
+cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
+crypto/fips/target/release/bc-fips-install target/release/bc-rust    # writes the binary HMAC
+target/release/bc-rust fips-self-test                                # prints each status
 cargo test -p bouncycastle-aes --features fips --lib                 # AES KAT unit test
 ```

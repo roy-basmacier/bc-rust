@@ -2,9 +2,9 @@
 //! crypto officer who builds and runs the application.
 //!
 //! 1. **Enable the features.** The application depends on `bouncycastle-fips` (default features
-//!    `aes` and `sha2`), which turns on the `fips` feature of `bouncycastle-aes`,
-//!    `bouncycastle-sha2` and `bouncycastle-core`: from then on every AES key and SHA-2 hash in the
-//!    whole program is gated on the self-tests.
+//!    `aes`, `sha2`, `ecdsa` and `eccdh`), which turns on the `fips` feature of those algorithm
+//!    crates and of `bouncycastle-core`: from then on every AES key, SHA-2 hash and ECDSA or ECC
+//!    CDH key pair, signer, verifier and agreement in the whole program is gated on the self-tests.
 //! 2. **Power on.** The first thing `main` does is `power_on_self_tests()`; if it fails, the
 //!    program stops.
 //! 3. **Use the services**, here an AES-GCM key and a SHA-256 hash, as usual.
@@ -13,7 +13,7 @@
 //!    the other way to re-run them.
 //!
 //! It first shows what an application that skips step 2 sees. This is a self-test prototype for
-//! AES and SHA-2, not a validated module.
+//! AES, SHA-2, ECDSA and ECC CDH, not a validated module.
 //!
 //! Run it with `cargo run --example crypto_officer --manifest-path crypto/fips/Cargo.toml`.
 

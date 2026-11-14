@@ -1,5 +1,7 @@
 //! The FIPS 140-3 self-tests, with the cli's `fips` cargo feature: the power-on run every
-//! invocation makes before its subcommand, the `fips-self-test` subcommand that runs them again
+//! invocation makes before its subcommand (clap parses the arguments first, so `--help`,
+//! `--version` and usage errors print and exit without it; no cryptographic service is reachable
+//! that way), the `fips-self-test` subcommand that runs them again
 //! on demand, and `fips-info`.
 //!
 //! The power-on run is a function of the process: each `bc-rust` invocation is a new process,

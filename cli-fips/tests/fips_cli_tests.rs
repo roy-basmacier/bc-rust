@@ -67,7 +67,7 @@ fn self_test_command_reports_every_algorithm_passed() {
 
 #[test]
 fn hashes_and_macs_give_the_published_answers() {
-    // FIPS 180-4 / RFC 4231 / RFC 5869 answers, as hex.
+    // FIPS 180-4 / FIPS 202 / RFC 4231 / RFC 5869 answers, as hex.
     assert_eq!(
         ok(run(&["sha256", "-x"], b"abc")),
         b"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"

@@ -29,9 +29,9 @@
 //!
 //! # The pair-wise consistency test
 //!
-//! ISO/IEC 19790:2012 7.10.3.3 [10.35], as IG 10.3.A Additional Comment 1 quotes it: "a pair-wise
-//! consistency test shall be performed for every generated public and private key pair", at
-//! minimum "the PCT that is required by the underlying algorithm standard (e.g., SP 800-56Arev3
+//! ISO/IEC 19790:2012 7.10.3.3, as the Background of IG 10.3.A quotes it: "a pair-wise
+//! consistency test shall [10.35] be performed for every generated public and private key pair",
+//! at minimum (Additional Comment 1) "the PCT that is required by the underlying algorithm standard (e.g., SP 800-56Arev3
 //! Section 5.6.2.1.4 option 'b' ...)". That option, for an ECC key pair `(d, Q)`: "Use the private
 //! key, d, along with the generator G and other domain parameters associated with the key pair,
 //! to compute dG ... Compare the result to the public key, Q. If dG is not equal to Q, then the

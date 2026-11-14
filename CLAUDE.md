@@ -71,9 +71,10 @@ cargo run -p cli -- --help      # run the `bc-rust` CLI
 `crypto/fips` (`bouncycastle-fips`, the FIPS 140-3 self-tests) is excluded from the workspace, so
 `--workspace` never builds it; use `cargo test --manifest-path crypto/fips/Cargo.toml`. Its crate
 docs ("Feature unification") say why, and what that rules out for the other members.
-The self-tests themselves live in `crypto/aes/src/self_test.rs` and `crypto/sha2/src/self_test.rs`
-behind each crate's `fips` feature; their unit tests (which inject a failing KAT) run with
-`cargo test -p bouncycastle-aes --features fips --lib` (likewise `-p bouncycastle-sha2`). Only
+The self-tests themselves live in the `src/self_test.rs` of `crypto/aes`, `crypto/sha2`,
+`crypto/ecdsa` and `crypto/eccdh`, behind each crate's `fips` feature; their unit tests (which
+inject a failing KAT) run with `cargo test -p bouncycastle-aes --features fips --lib` (likewise
+`-p bouncycastle-sha2`, `-p bouncycastle-ecdsa` and `-p bouncycastle-eccdh`). Only
 `--lib`: with `fips` on, the crate's integration tests and doctests find no self-test run and fail.
 
 The FIPS software integrity test (`bouncycastle-fips`'s `integrity` feature) fails power-on until
@@ -95,7 +96,7 @@ The end-to-end test of the module integrity work is that tool's `tests/two_consu
 (two programs, AES-only and everything, in `tests/consumers`), not a `--workspace` test, since
 `bouncycastle-fips` is outside the workspace. The CLI's `fips` feature turns `integrity` on, so a
 `bc-rust` built with it exits 3 until the tool has run on it; `bc-rust fips-info` then prints the
-module table, `module-hmac` and the toolchain record. `cargo test -p cli --features fips` (and
+module table, `module-hmac`, the `external` lines and the toolchain record. `cargo test -p cli --features fips` (and
 `--features fips-validated`) builds the tool into the test's own target directory and runs every
 CLI test against an installed copy (`cli/tests/common/fips_install.rs`).
 
@@ -120,7 +121,9 @@ cargo test --manifest-path cli-fips/Cargo.toml               # incl. proof the b
 
 How it reuses `cli/src`: `cli-fips/src/main.rs` compiles the command modules in by `#[path]`, against
 `cli-fips/facade`, a package whose library is named `bouncycastle` and re-exports only the boundary crates (the real
-umbrella depends on `bouncycastle-sm2`, which turns SM2 on). `ctr_cmd`, `hkdf_cmd` and `mac_cmd` also name
+umbrella depends on `bouncycastle-sm2` and asks for `bouncycastle-ec/sm2` itself). The facade re-exports
+`bouncycastle-ec` without `sm2`, for the curve markers the ECDSA and ECC CDH commands are generic over, and
+`kdf_cmd` is among the modules taken by `#[path]`. `ctr_cmd`, `hkdf_cmd` and `mac_cmd` also name
 non-boundary algorithms; those lines carry `#[cfg(not(bc_approved_only))]`, a cfg only `cli-fips/build.rs` sets. The
 clap enum and dispatch in `cli-fips/src/main.rs` are `cli/src/main.rs`'s, restricted to approved algorithms: **when
 you change an approved subcommand's flags or dispatch in `cli/src/main.rs`, change it in `cli-fips/src/main.rs`
@@ -141,7 +144,8 @@ boundary; input order is irrelevant and CRLF checkouts give the same output as L
 definitions are in its docstring. Compare its output with the table the build embeds.
 `--lock` is required. It names the `Cargo.lock` of the build being checked: `crypto/fips/Cargo.lock`
 (committed, the one `Cargo.lock` that `.gitignore` lets through) for the module's own workspace,
-the root `Cargo.lock` for `bc-rust`, or a program's own. The external crates' rows come from it
+the root `Cargo.lock` for `bc-rust`, `cli-fips/Cargo.lock` for the approved-mode binary (not
+committed: the one that build wrote), or a program's own. The external crates' rows come from it
 (crypto/fips/EXTERNAL_CRATES.md).
 
 The build side is `crypto/fips/build.rs` over the helper crate `bouncycastle-fips-build`
@@ -162,7 +166,7 @@ settings of that feature. To run the helper's mutants with the fips tests, use
 
 The approved-mode switch (`crypto/fips/APPROVED_MODE.md`): `bouncycastle-ec`'s default `sm2`
 feature is the only non-approved one, so the workspace dependency on `bouncycastle-ec` has
-`default-features = false` and only `bouncycastle-sm2` asks for `sm2`; a new boundary crate must
+`default-features = false` and only `bouncycastle-sm2` and the umbrella crate ask for `sm2`; a new boundary crate must
 not take `ec` with default features. Every boundary `build.rs` emits `cargo:features=` beside
 `cargo:src_dir=`; a feature that adds a non-approved service goes into `NON_APPROVED` in
 `build-support`. Test `--features approved-only` too: it adds `bouncycastle_fips::approved` and

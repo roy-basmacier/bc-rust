@@ -1,5 +1,10 @@
 # Approved-mode builds: leaving non-approved curves and KDF pairings out
 
+This is the dated proposal with the decisions taken on it. Where it names files or crates, the
+release has since changed and the code at HEAD wins: `bouncycastle-ecdsa` is now generic over the
+curve (no `ecdsa_p256`, `keys_p256.rs` or `rfc6979_p256k1.rs`), `eccdh`, `concatkdf` and
+`x963kdf` are in the boundary, and the umbrella crate asks for `bouncycastle-ec/sm2` explicitly.
+
 Proposal, 2026-11-12, against `feature/fips-integrity` at `d54a9687`. It changes no code. It
 answers the question left open in the module-integrity issue ("Not everything in the EC crates
 is FIPS approved"): one source tree has to produce both a FIPS-approved build and a full build,
@@ -68,7 +73,7 @@ The four [open decisions](#open-decisions) were put to the project owner the sam
    algorithm crates keep `&mut dyn RNG`. In an approved build `bouncycastle-fips` offers the
    concrete approved HKDF/HMAC aliases and ECDSA wrappers that take a `HashDRBG_*`. BC-FJA draws
    the same HKDF line: `FipsKDF.AgreementKDFPRF` lists SHA-1, SHA-2 and SHA-3 (as hashes, HMACs,
-   and KMAC128/256), which matches SP 800-56Cr2 Table 4. SM3 is not among them.
+   and KMAC128/256), whose HMAC entries match SP 800-56Cr2 Table 4. SM3 is not among them.
 4. **CLI: a separate build later, as recommended.** `cli`'s `fips` feature stays "a full build
    with the self-tests and integrity checks". An approved-mode `bc-rust` will be built from its
    own workspace in a later task.
@@ -104,7 +109,7 @@ here.
 
 | Item | Status | Source |
 |---|---|---|
-| ECDSA over P-256/SHA-256, P-384/SHA-384, P-521/SHA-512 (`ecdsa_p256`, `_p384`, `_p521`, `keys_*`) | Approved | FIPS 186-5 §6 ("domain parameters … are included in SP 800-186"), §6.4 ("An approved hash function or XOF … shall be used"); each curve is fixed to one SHA-2 hash whose strength matches `len(n)` (§6.1: "A hash function that provides a lower security strength than is associated with the bit length of n shall not be used") |
+| ECDSA over P-256/SHA-256, P-384/SHA-384, P-521/SHA-512 (`ecdsa_p256`, `_p384`, `_p521`, `keys_*`) | Approved | FIPS 186-5 §6 ("domain parameters … are included in SP 800-186"), §6.4 ("An approved hash function or XOF … shall be used"); each curve is fixed to one SHA-2 hash whose strength matches `len(n)` (§6.1.1: "A hash function that provides a lower security strength than is associated with the bit length of n shall not be used") |
 | Deterministic ECDSA on the same three (`ECDetDSA*Signer`, `rfc6979_p*`) | Approved | FIPS 186-5 Explanation item (2) ("known as deterministic ECDSA is also approved"), §6.3.2, Appendix A.3.3: "HMAC_DRBG shall be used with the same hash function as the one used to process the message M". The `rfc6979_*` modules key HMAC with the curve's own hash, as required. |
 | ECDSA and deterministic ECDSA over brainpoolP256r1/384r1/512r1 (`*_bp*r1`) | Conditional, follows the curve | SP 800-186 Appendix H.1, as above |
 | ECDSA and deterministic ECDSA over secp256k1 (`*_p256k1`) | Conditional, follows the curve | SP 800-186 Appendix H.2, as above |
@@ -324,7 +329,7 @@ asked:
 * **Specs**, downloaded 2026-11-12 from `nvlpubs.nist.gov` into a scratch directory outside the
   repo, converted with `pdftotext` and searched: `NIST.SP.800-186.pdf` (Executive Summary;
   §3.1.2 Table 2; §3.2.1.3-5; Appendix H.1, H.2; no match for "SM2"),
-  `NIST.FIPS.186-5.pdf` (§6, §6.1, §6.3.2, §6.4; Appendix A.3.3), `NIST.SP.800-56Cr2.pdf`
+  `NIST.FIPS.186-5.pdf` (§6, §6.1.1, §6.3.2, §6.4; Appendix A.3.3), `NIST.SP.800-56Cr2.pdf`
   (§5.1, §5.2 Table 4), `NIST.SP.800-108r1-upd1.pdf` (§4 for the iteration modes). Not
   consulted: the FIPS 140-3 IG and ACVP's coverage of Brainpool and secp256k1; the decision to
   approve them rests on BC-FJA 3.0.X's precedent.

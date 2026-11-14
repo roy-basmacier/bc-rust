@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-# FIPS 140-3 power-on self-tests: every invocation runs them before its subcommand and exits
-# non-zero if they fail -- the SHA-2 and HMAC-SHA-512 self-tests, the software integrity test
-# (the binary HMAC), then the AES, ECDSA and ECC CDH self-tests. `fips-self-test` runs them again
-# on demand and `fips-info` prints the module table, the module HMAC and the toolchain record. Off
+# FIPS 140-3 power-on self-tests: every invocation that reaches a subcommand runs them first and
+# exits non-zero if they fail (clap parses the arguments before that, so `--help`, `--version` and
+# usage errors print and exit without power-on, and without reaching any cryptographic service)
+# -- the SHA-2 and HMAC-SHA-512 self-tests, the software integrity test (the binary HMAC), then
+# the AES, ECDSA and ECC CDH self-tests. `fips-self-test` runs them again on demand and
+# `fips-info` prints the module table, the module HMAC, the external crates and the toolchain
+# record. Off
 # by default; without it the CLI is unchanged. Turning it on gates AES, SHA-2, ECDSA and ECC CDH
 # (with a pair-wise consistency test on every generated key pair) in the whole build (see
 # "Feature unification" in the bouncycastle-fips docs), so test it on its own:

@@ -384,7 +384,8 @@ pub(crate) fn verify<'a>(
 }
 
 /// The HMAC key from [`KEY`], once the HMAC-SHA-512 self-test has passed (ISO/IEC 19790:2012
-/// 7.10.1 [10.20]: the integrity technique's algorithm "shall first pass" its self-test).
+/// 7.10.1: the integrity technique's algorithm "shall [10.20] first pass the cryptographic
+/// algorithm self-test").
 fn key() -> Result<HmacKey<SHA512>, BinaryHmacError> {
     if hmac_self_test::status() != SelfTestStatus::Passed {
         return Err(BinaryHmacError::SelfTestNotPassed);

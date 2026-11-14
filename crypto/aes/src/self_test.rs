@@ -28,7 +28,7 @@
 //!
 //! AES keys can be created only while the status reads `Passed`: not during the first run, and
 //! not after a failure. A re-run reads `Passed` while it runs (IG 10.3.E Resolution 5 lets a
-//! repeated CAST run in the background), so keys stay available through one.
+//! repeated CAST, which this is, run in the background), so keys stay available through one.
 
 use bouncycastle_cipher::BlockCipherKey;
 use bouncycastle_cipher::modes::ModeNames;

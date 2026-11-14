@@ -51,8 +51,10 @@ file that crates.io serves for that version, which is immutable once published.
    target, so the four are never compiled as dependencies of `bouncycastle-fips`, but resolution
    still honours the requirements: a lock file is resolved for every target. Cargo allows one
    version per semver-compatible range in a graph. A program using the module therefore resolves
-   to exactly these versions or fails to resolve. Only users of `bouncycastle-fips` are
-   constrained; `bouncycastle-rng` keeps its loose requirement. `build.rs` reads
+   to exactly these versions or fails to resolve. Every graph that holds
+   `bouncycastle-fips` is constrained, including one where it is an optional dependency that is
+   off: `cli`'s brings the four pins into the root workspace's lock. `bouncycastle-rng` keeps its
+   loose requirement. `build.rs` reads
    `bouncycastle-fips`'s own `Cargo.toml` and fails the build unless each of those requirements is
    `=` the pinned version. A bump made in one place and not the other therefore fails the build.
 4. **What happens when the consumer's resolver wants another version:** resolution fails, naming

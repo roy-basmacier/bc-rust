@@ -28,9 +28,10 @@
 //! `KeyAgreementError::SelfTestNotPassed`; where it is
 //! infallible (`SHA256::new()`, a one-shot `hash()`) it panics, and `from_suspended` returns
 //! `SuspendableError::SelfTestNotPassed`. Once any self-test has failed, the module is in the
-//! error state until the program restarts: no service can be created, and every service that
-//! already exists -- a key, a worker, a hash in progress -- panics on its next operation, since
-//! none of those operations returns an error for it. No self-test runs before `main`.
+//! error state until the program restarts: no service can be created, and a service that already
+//! exists -- a key, a worker, a hash in progress -- panics on its next gated operation, since
+//! none of those operations returns an error for it. For AES the gated operation is the block
+//! operation, which leaves a gap (see Security Considerations). No self-test runs before `main`.
 //!
 //! The cargo features select which algorithms are self-tested and gated:
 //!
@@ -39,7 +40,7 @@
 //! | `aes` | [`SelfTestedAlgorithm::AES`] | every AES mode and key size |
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
 //! | `ecdsa` (implies `sha2`) | [`SelfTestedAlgorithm::ECDSA`] | ECDSA key generation (with a pair-wise consistency test), signing with a random and a deterministic `k`, and verification, on every curve and hash |
-//! | `eccdh` | [`SelfTestedAlgorithm::ECC_CDH`] | ECC CDH key generation (with a pair-wise consistency test) and agreement, raw and with every KDF, on every curve |
+//! | `eccdh` (implies `sha2`) | [`SelfTestedAlgorithm::ECC_CDH`] | ECC CDH key generation (with a pair-wise consistency test) and agreement, raw and with every KDF, on every curve |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
 //! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
 //! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates, and the `approved` module offers the approved services as concrete types |
@@ -207,7 +208,11 @@
 //! * Re-running is a periodic self-test (IG 10.3.E). At Security Levels 1 and 2 "a provided
 //!   service, resetting, rebooting or power cycling" are acceptable triggers; Levels 3 and 4
 //!   must re-run automatically on a defined period [10.54]. A repeated CAST "may be run in the
-//!   background without the need for inhibiting data output" (IG 10.3.E Resolution 5).
+//!   background without the need for inhibiting data output, unlike pre-operational self-tests
+//!   which are explicitly included in [AS03.07] and [AS10.03]" (IG 10.3.E Resolution 5). That
+//!   covers the CAST re-runs only: with the `integrity` feature [`run_self_tests`] also re-runs
+//!   the software integrity test, a pre-operational self-test, without inhibiting output. That is
+//!   an open point for a validation.
 //! * A service that performs on-demand self-tests needs an approved service indicator; re-running
 //!   by restart does not (IG 2.4.C).
 //!
@@ -227,8 +232,8 @@
 //! What, for SHA-2 (IG 10.3.A Resolution 2): "a CAST for SHA-256 is required" and "a CAST for
 //! SHA-512 is required". SHA-224 needs its own only "if SHA-224 is implemented without SHA-256",
 //! SHA-384 only "if SHA-384 is implemented without SHA-512", SHA-512/224 or /256 only "if the
-//! SHA-512 CAST is not performed". A SHA-1 CAST is required if SHA-1 is implemented; bc-rust
-//! has none.
+//! SHA-512 CAST is not performed". It also lists "a CAST for SHA-1 is required", which Note2
+//! conditions ("if the module is designed to use these hash functions"); bc-rust has no SHA-1.
 //!
 //! What, for HMAC (IG 10.3.A Resolution 4): "a CAST for HMAC is required and shall be performed
 //! with the HMAC function using at least one of the implemented underlying SHA-1, SHA-2, or SHA-3
@@ -266,7 +271,7 @@
 //! The KDFs over `Z` (X9.63, concatenation, HKDF) are not covered by it ("All key derivation
 //! functions not included in the SP 800-56Arev3 CASTs shall have their own self-test").
 //!
-//! Pair-wise consistency tests (IG 10.3.A Additional Comment 1, quoting ISO/IEC 19790:2012
+//! Pair-wise consistency tests (IG 10.3.A Additional Comment 1, per ISO/IEC 19790:2012
 //! 7.10.3.3 [10.35]): "a pairwise consistency test (PCT) shall be conducted for every generated
 //! public and private key pair for the applicable approved algorithm". At minimum the one "required
 //! by the underlying algorithm standard (e.g., SP 800-56Arev3 Section 5.6.2.1.4 option 'b' ...)",
@@ -288,15 +293,18 @@
 //! * A known-answer test whose output differs from the known answer "shall fail" (§7.10.3.2
 //!   [10.28]). An answer may be compared through a hash only if that hash has itself been
 //!   self-tested first (GeneralNote7).
-//! * The module goes into an error state and inhibits data output (AS03.07, as IG 1.B and IG
-//!   10.3.E Resolution 5 cite it; GeneralNote6 says the same for comparison tests). Per AS10.07
-//!   as IG 1.B applies it, a failed self-test puts the *entire* module in the error state, not
-//!   just the failed algorithm.
-//! * **Not in the IG:** the text of AS10.07 to AS10.11 (ISO/IEC 19790:2012 §7.10.1 and ISO/IEC
-//!   24759), which state the error-state behaviour, the error indicator and how a module leaves
-//!   the error state. Those documents are not freely available. Project decision (2026-11-10), in
-//!   their absence: a failure of any self-test blocks every gated algorithm, and only a restart
-//!   of the program leaves the error state; a later run of the self-tests does not clear it.
+//! * "If a cryptographic module fails a self-test, the module shall enter an error state"
+//!   (AS10.07, as NIST SP 800-140 (March 2020) Section 6.10 gives it): the *entire* module, not
+//!   just the failed algorithm. Data output "shall be inhibited while performing manual entry,
+//!   pre-operational self-tests, software/firmware loading and zeroisation; or when the
+//!   cryptographic module is in an error state" (AS03.07, SP 800-140 Section 6.3; GeneralNote6
+//!   says the same for comparison tests).
+//! * **Not freely available:** the text of AS10.08 to AS10.11 (ISO/IEC 19790:2012 and ISO/IEC
+//!   24759:2017; neither the IG nor SP 800-140 quotes them), so what they ask of the error
+//!   indicator and of how a module leaves the error state is unverified. Project decision
+//!   (2026-11-10), in their absence: a failure of any self-test blocks every gated algorithm, and
+//!   only a restart of the program leaves the error state; a later run of the self-tests does
+//!   not clear it.
 //!
 //! # Known-answer vectors
 //!
@@ -311,7 +319,7 @@
 //! | AES-GCM-128 encrypt | 1.a, 1.d(i), forward cipher (1.c) | CAVP `gcmtestvectors.zip` (CAVS 14.0), `bc-test-data/crypto/aes_tdes_vectors/GCM/cavp/gcmEncryptExtIV128.rsp`, `[Keylen = 128] [IVlen = 96] [PTlen = 128] [AADlen = 128] [Taglen = 128]`, `Count = 0` | Key `c939cc13397c1d37de6ae0e1cb7c423c`, IV `b3d8cc017cbb89b39e0f67e2`, PT `c3b3c41f113a31b73d9a5cd432103069`, AAD `24825602bd12a984e0092d3e448eda5f` | CT `93fe7d9e9bfd10348a5606e5cafa7354`, Tag `0032a1dc85f1c9786925a2e71d8272dd` |
 //! | AES-GCM-128 decrypt | 1.b | the same vector, decrypting CT and Tag (1.b: "the data could be the encrypted value computed during the encryption test") | Key, IV, AAD, CT, Tag as above | PT as above, tag accepted |
 //! | AES-CBC-128 decrypt | inverse cipher (1.c) | NIST SP 800-38A (2001), Appendix F.2.2 "CBC-AES128.Decrypt" | Key `2b7e151628aed2a6abf7158809cf4f3c`, IV `000102030405060708090a0b0c0d0e0f`, CT `7649abac8119b246cee98e9b12e9197d` `5086cb9b507219ee95db113a917678b2` `73bed6b8e3c1743b7116e69e22229516` `3ff1caa1681fac09120eca307586e1a7` | PT `6bc1bee22e409f96e93d7e117393172a` `ae2d8a571e03ac9c9eb76fac45af8e51` `30c81c46a35ce411e5fbc1191a0a52ef` `f69f2445df4f9b17ad2b417be66c3710` |
-//! | ECDSA SigGen | Resolution 10 (generation, `k` fixed), every curve (Notes 16, 17) | NIST ACVP-Server `gen-val/json-files/ECDSA-SigGen-FIPS186-5/internalProjection.json`, `tgId` 14 (P-256, SHA2-256), `tcId` 131 | d `a88c7a12e6cd3ec1467e96dfd230d654f786fa72efa43ca9632b8de5bd245cc3`, k `48fa4b5e8bb917973c25a0ada41f33821f68b650568eb144be5960da1c756aba`, Msg `4f1b2aba5d952e434d26b9015cb17fb4ffebd0cc7a9420f1915db0a298fd925092cd66c3d6556b30dca4c1559247dcb22dbfd78fc9ffb4b5df0110c8c50be70f7b4c483964ad74d67b99cc2f4a00f2a12575ae800c0e9cda06cb714a2ce6caa9d30b5585e80228dc3fe39d66dabb80504b3caf90b4bb1bd1d2303b8d89b3ba18` | r `642a2fea3fe1ea23ab699e5ed5568d0833b4cef596764628af9c47e23c0b400b`, s `3be682f265ae3db0d595128f35af41bc63cb0fc4d067cefdec95687ac2b3b5af` |
+//! | ECDSA SigGen | Resolution 10 (generation, `k` fixed), every curve (Notes 16, 17) | NIST ACVP-Server at RELEASE/v1.1.0.39 (commit `a9496ad1`; the ids change between releases), `gen-val/json-files/ECDSA-SigGen-FIPS186-5/internalProjection.json`, `tgId` 14 (P-256, SHA2-256), `tcId` 131 | d `a88c7a12e6cd3ec1467e96dfd230d654f786fa72efa43ca9632b8de5bd245cc3`, k `48fa4b5e8bb917973c25a0ada41f33821f68b650568eb144be5960da1c756aba`, Msg `4f1b2aba5d952e434d26b9015cb17fb4ffebd0cc7a9420f1915db0a298fd925092cd66c3d6556b30dca4c1559247dcb22dbfd78fc9ffb4b5df0110c8c50be70f7b4c483964ad74d67b99cc2f4a00f2a12575ae800c0e9cda06cb714a2ce6caa9d30b5585e80228dc3fe39d66dabb80504b3caf90b4bb1bd1d2303b8d89b3ba18` | r `642a2fea3fe1ea23ab699e5ed5568d0833b4cef596764628af9c47e23c0b400b`, s `3be682f265ae3db0d595128f35af41bc63cb0fc4d067cefdec95687ac2b3b5af` |
 //! | Deterministic ECDSA SigGen | Resolution 10, Note10 | `DetECDSA-SigGen-FIPS186-5/internalProjection.json`, `tgId` 12 (P-256, SHA2-256), `tcId` 111 | d `f69a77b56caf234368df0d69f96cf04f435f967ff39e28371c6fe7a8146b865d`, Msg `0cce12ccf2f17bda8c1192f4557a8410fd65fa8dca174bb57c9b2a1e29597b6a44ad055d23aba4928b72c67a3e0093bc3686f68de6cee2122c35779684074c538cd1f5e836ba96f4f3e05cac2977ebf332ae2576ac083c3a963c18ba9f9872e71ef0f229f4c66a5cfca3952208784e44ef172ff7ee6b437efbe9afa116939789` | r `46aeb40043eaf16df463894fc8d3161837930afbd621519f51d02d5a28012df6`, s `6255be755fcf2e6dd4b7187158dc6253dde36e81dc114e09e6f6ed778acb2128` |
 //! | ECDSA SigVer | Resolution 10 (verification), also deterministic ECDSA's (Note9) | `ECDSA-SigVer-FIPS186-5/internalProjection.json`, `tgId` 8 (P-256, SHA2-256), `tcId` 54 | Qx `93167a1567dfa211c10829919113eab92591ce6d01ca9d75283a66206cd5ca0d`, Qy `d647da83c25592c03332dc2a057e1ef61eaed77fa413275beee034512f31c97d`, Msg `cf9838b2e0e94584cfb7edb86af4ea09458ffdd81c024e54fe7899babb52977723fc7f04118528a7fb830af205786168458d85bacc0df74f9d493809904107d9aaf230cc5c2f97ca49c9e51451eb9d368129fbc32c416a53c9dc33a8507170e1975cdea2aee3924051b2fb3660c02bd1f1887a01229f368895dfb0ef6fe87d44`, r `8f3c091eec05deeca81cd5e42aa7365736011c41fdda8b4c9973962645ae59bf`, s `597b95068c79b5c6ef763eea19836a3a6478101b3fea1c0811845f7366387d65` | accepted (`testPassed: true`) |
 //! | ECC CDH | IG D.F (shared secret computation), every curve | CAVP `ecccdhtestvectors.zip` (CAVS 14.1), `KAS_ECC_CDH_PrimitiveTest.txt`, `[P-256]`, `COUNT = 0` | QCAVSx `700c48f77f56584c5cc632ca65640db91b6bacce3a4df6b42ce7cc838833d287`, QCAVSy `db71e509e3fd9b060ddb20ba5c51dcc5948d46fbf640dfe0441782cab85fa4ac`, dIUT `7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534` | ZIUT `46fc62106420ff012e54a434fbdd2d25ccc5852060561e68040dd7778997bd7b` |
@@ -353,7 +361,10 @@
 //! | `bouncycastle_sha2::self_test` | 1320 B |
 //! | [`module_hmac`] | 3608 B |
 //!
-//! The module table is a `static` of 15 package names and 15 x 64 hash bytes. The state is a
+//! The first two rows predate the ECDSA and ECC CDH self-tests, which are not yet measured.
+//!
+//! The module table is a `static` of 19 rows (15 project crates and 4 external), each a package
+//! name and 64 hash bytes. The state is a
 //! byte per algorithm and one for the module error state, all in `static`s. With the `fips`
 //! feature each SHA-2 hash is 8 bytes larger (whether its output is gated).
 //!
@@ -361,7 +372,8 @@
 //!
 //! * **Not a validated module.** See the top of this page for what a validation needs beyond
 //!   these self-tests. HKDF and the Hash_DRBG become usable as soon as SHA-2 passes, but have no
-//!   self-test of their own here (FIPS 140-3 IG 10.3.A Resolution 6 requires them): they cannot
+//!   self-test of their own here (FIPS 140-3 IG 10.3.A Resolution 6 requires one for the DRBG,
+//!   Resolution 8 for HKDF as an SP 800-56C two-step KDA): they cannot
 //!   be claimed as approved services of a build using this crate. HMAC has its CAST, but HMAC
 //!   services are gated only on SHA-2, not on it. Likewise the X9.63 and concatenation KDFs that
 //!   ECC CDH can derive through: the ECC CDH CAST covers the shared secret `Z` only.
@@ -378,10 +390,19 @@
 //!   state are process-global `static`s. A program that links two versions of
 //!   `bouncycastle-core` (or of an algorithm crate) has two independent sets, and a failure in one
 //!   does not stop the other.
-//! * **The error state is permanent and panics.** After a failure, every existing key, worker and
-//!   hash panics on its next operation, including in code that does not expect a panic. Under
+//! * **The error state is permanent and panics.** After a failure, an existing key, worker or
+//!   hash panics on its next gated operation, including in code that does not expect a panic. Under
 //!   `panic = "abort"` that ends the process; under unwinding, code that catches the panic must not
 //!   treat the operation as having produced output.
+//! * **Known gap: an existing AES worker does not always stop.** The error-state check is in the
+//!   AES block operations only, so an operation that needs no new block still completes: a GCM or
+//!   GMAC worker can absorb data and produce or check its tag (`CIPH_K(J0)` and `H` are computed
+//!   at creation), and a CTR, CFB or GCM worker can use up to 15 bytes of keystream it has
+//!   already buffered.
+//! * **Known gap: `bouncycastle-ec` is not gated.** It is inside the boundary, and the methods of
+//!   its public `Curve` trait (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`,
+//!   `public_point`, `shamir_multiply`) reach key generation and the ECC CDH primitive with no
+//!   CAST and no pair-wise consistency test.
 //! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
 //!   that any crate can report a failure (the ECDSA and ECC CDH pair-wise consistency tests do).
 //!   Nothing can clear
@@ -399,7 +420,10 @@
 //!   keys, nonces or IVs are chosen.
 
 #![no_std]
-#![deny(unsafe_code)]
+// The software integrity test is the crate's only `unsafe` code (`integrity`, which allows it
+// locally); without that feature there is none, and none can be added.
+#![cfg_attr(not(feature = "integrity"), forbid(unsafe_code))]
+#![cfg_attr(feature = "integrity", deny(unsafe_code))]
 #![forbid(missing_docs)]
 
 pub use bouncycastle_core::fips::{SelfTestError, SelfTestStatus, SelfTestedAlgorithm};
@@ -525,7 +549,8 @@ pub fn power_on_self_tests() -> Result<(), SelfTestError> {
 
 /// Runs the self-test of every algorithm in [`SELF_TESTED`] again, whether or not it passed
 /// before: the on-demand periodic self-test (FIPS 140-3 IG 10.3.E). Services stay available
-/// while it runs. It cannot clear a failure; only a restart does.
+/// while it runs, the software integrity test included; see the crate docs' Requirements for what
+/// IG 10.3.E Resolution 5 does and does not cover. It cannot clear a failure; only a restart does.
 ///
 /// # Errors
 ///

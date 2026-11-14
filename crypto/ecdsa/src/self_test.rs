@@ -8,7 +8,8 @@
 //! generation and of verification, with the per-message secret `k` fixed for a KAT ("For a KAT,
 //! this requires the randomization parameter be fixed"), and Note10 for a separate CAST of
 //! deterministic signature generation, since both are offered. So three known answers, all
-//! ECDSA-P256-SHA256 from the NIST ACVP-Server `gen-val/json-files` (FIPS 186-5 revision):
+//! ECDSA-P256-SHA256 from the NIST ACVP-Server `gen-val/json-files` (FIPS 186-5 revision), at
+//! RELEASE/v1.1.0.39 (commit `a9496ad1`; the ids change between releases):
 //!
 //! * signature generation with a random `k`: `ECDSA-SigGen-FIPS186-5`, `tgId` 14, `tcId` 131,
 //!   with its `k` from `internalProjection.json`;
@@ -38,9 +39,9 @@
 //!
 //! # The pair-wise consistency test
 //!
-//! ISO/IEC 19790:2012 7.10.3.3 [10.35], as IG 10.3.A Additional Comment 1 quotes it: "a pair-wise
-//! consistency test shall be performed for every generated public and private key pair", and the
-//! IG asks it be "consistent with the intended use of the keys" when that is known. A key pair
+//! ISO/IEC 19790:2012 7.10.3.3, as the Background of IG 10.3.A quotes it: "a pair-wise
+//! consistency test shall [10.35] be performed for every generated public and private key pair",
+//! and Additional Comment 1 asks it be "consistent with the intended use of the keys" when that is known. A key pair
 //! from [`crate::keys::keygen`] is an ECDSA pair, so the test signs a fixed message with the new
 //! private key (deterministic `k`, so no RNG is drawn from) and verifies the signature with the
 //! new public key, before `keygen` returns the pair.

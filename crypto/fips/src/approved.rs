@@ -7,19 +7,30 @@
 //! uses the services through this module instead, which names only approved choices:
 //!
 //! * HKDF over SHA-2, as the aliases [`HKDF_SHA256`], [`HKDF_SHA384`] and [`HKDF_SHA512`] (each
-//!   hash is in SP 800-56C Rev. 2, Table 4, "MAC( salt, Z, …) = HMAC-hash( salt, Z )").
+//!   hash is in SP 800-56C Rev. 2, Table 4, "MAC( salt, Z, …) = HMAC-hash( salt, Z )"). HKDF has
+//!   no self-test of its own yet, and neither has the Hash_DRBG below, so neither can be claimed
+//!   as an approved service yet: see the crate docs, Security Considerations.
 //! * HMAC over SHA-2, as the aliases [`HMAC_SHA224`] to [`HMAC_SHA512_256`].
 //! * ECDSA key generation and signing with a random `k`, drawing only from an SP 800-90A Hash_DRBG
 //!   ([`HashDRBG_SHA256`], [`HashDRBG_SHA512`]): the [`ApprovedDRBG`] trait is sealed, so no other
-//!   RNG can be passed. Deterministic ECDSA and verification draw nothing, and are used through
-//!   `bouncycastle-ecdsa` directly. `bouncycastle-ecdsa` takes any `HMACParams` hash as well; the
-//!   keys here fix it to the SHA-2 hash of each curve's strength ([`ECDSAP256PrivateKey`] is
-//!   `ECDSAPrivateKey<P256, SHA256>`, and so on).
+//!   RNG can be passed. The trait restricts the type, not how the DRBG was seeded. Deterministic
+//!   ECDSA and verification draw nothing, and are used through `bouncycastle-ecdsa` directly.
+//!   `bouncycastle-ecdsa` takes any `HMACParams` hash as well; the keys here fix it to the SHA-2
+//!   hash of each curve's strength ([`ECDSAP256PrivateKey`] is `ECDSAPrivateKey<P256, SHA256>`,
+//!   and so on).
 //!
 //! The curves are P-256, P-384, P-521, brainpoolP256r1, brainpoolP384r1, brainpoolP512r1 and
 //! secp256k1. SP 800-186 allows the Brainpool curves "for interoperability reasons" (Appendix H.1)
 //! and secp256k1 "for blockchain-related applications" (Appendix H.2); the module cannot check
 //! the caller's purpose, so meeting those conditions is the application's responsibility.
+//!
+//! # Self-test errors
+//!
+//! Besides the errors each function lists, the key generation functions and
+//! [`ecdsa_create_signer`] return `SignatureError::SelfTestNotPassed` until the ECDSA self-test
+//! has passed and once the module is in the error state. Key generation returns
+//! [`SignatureError::ConsistencyCheckFailed`] if the new pair fails its pair-wise consistency
+//! test, which puts the module in the error state; the pair is dropped.
 //!
 //! # Usage Examples
 //!
@@ -120,6 +131,7 @@ impl ApprovedECDSAKey for ECDSASecp256K1PrivateKey {}
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 128-bit security
 /// strength or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_p256_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSAP256PublicKey, ECDSAP256PrivateKey), SignatureError> {
@@ -131,6 +143,7 @@ pub fn ecdsa_p256_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 192-bit security
 /// strength (so [`HashDRBG_SHA256`] is refused) or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_p384_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSAP384PublicKey, ECDSAP384PrivateKey), SignatureError> {
@@ -142,6 +155,7 @@ pub fn ecdsa_p384_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 256-bit security
 /// strength (so [`HashDRBG_SHA256`] is refused) or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_p521_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSAP521PublicKey, ECDSAP521PrivateKey), SignatureError> {
@@ -153,6 +167,7 @@ pub fn ecdsa_p521_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 128-bit security
 /// strength or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_bp256r1_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSABp256r1PublicKey, ECDSABp256r1PrivateKey), SignatureError> {
@@ -164,6 +179,7 @@ pub fn ecdsa_bp256r1_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 192-bit security
 /// strength (so [`HashDRBG_SHA256`] is refused) or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_bp384r1_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSABp384r1PublicKey, ECDSABp384r1PrivateKey), SignatureError> {
@@ -175,6 +191,7 @@ pub fn ecdsa_bp384r1_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 256-bit security
 /// strength (so [`HashDRBG_SHA256`] is refused) or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_bp512r1_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSABp512r1PublicKey, ECDSABp512r1PrivateKey), SignatureError> {
@@ -186,6 +203,7 @@ pub fn ecdsa_bp512r1_keygen(
 /// # Errors
 /// As that function: [`SignatureError::RNGError`] if `drbg` offers less than 128-bit security
 /// strength or fails.
+/// Also the [self-test errors](self#self-test-errors).
 pub fn ecdsa_secp256k1_keygen(
     drbg: &mut impl ApprovedDRBG,
 ) -> Result<(ECDSASecp256K1PublicKey, ECDSASecp256K1PrivateKey), SignatureError> {
@@ -196,7 +214,8 @@ pub fn ecdsa_secp256k1_keygen(
 /// key's `SigningKey::create_signer` with no context.
 ///
 /// # Errors
-/// As `create_signer`: [`SignatureError::RNGError`] if `drbg` fails.
+/// As `create_signer`: [`SignatureError::RNGError`] if `drbg` fails, and
+/// `SignatureError::SelfTestNotPassed` as in the [self-test errors](self#self-test-errors).
 pub fn ecdsa_create_signer<'k, K, A, const SIG_LEN: usize>(
     sk: &'k K,
     drbg: &mut impl ApprovedDRBG,
@@ -214,6 +233,8 @@ where
 /// # Errors
 /// Those of [`ecdsa_create_signer`], and [`SignatureError::GenericError`] in the case, of
 /// probability about 2^-n for an n-bit curve order, that `r` or `s` comes out zero.
+/// `SignatureError::SelfTestNotPassed` also if the module enters the error state before the
+/// signature is finished.
 pub fn ecdsa_sign<K, A, const SIG_LEN: usize>(
     sk: &K,
     drbg: &mut impl ApprovedDRBG,

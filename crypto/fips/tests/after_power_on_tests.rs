@@ -19,8 +19,8 @@ fn services_work_after_power_on_and_across_re_runs() {
     common::assert_services(None);
 
     // A key and a hash created before a re-run are still usable afterwards, and give the right
-    // answer (FIPS 180-4 Appendix B.1 is not one of the KATs, so this also checks a value they
-    // don't).
+    // answer (SHA-256("abc"), from the NIST SHA examples FIPS 180-4 A.2 points to, is not one of
+    // the KATs, so this also checks a value they don't).
     let held = common::held();
 
     assert_eq!(power_on_self_tests(), Ok(()), "second call is a no-op");

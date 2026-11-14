@@ -54,7 +54,8 @@ impl SelfTestStatus {
 /// re-run of a self-test that has passed keeps reading [`SelfTestStatus::Passed`] until it
 /// finishes, so the algorithm stays available while its periodic self-test runs (FIPS 140-3 IG
 /// 10.3.E Resolution 5: a repeated CAST "may be run in the background without the need for
-/// inhibiting data output"). Once the module is in the error state ([`error_state`]) every cell
+/// inhibiting data output"; that covers a CAST, not the software integrity test, whose status is
+/// a cell too: see the `bouncycastle-fips` crate docs, "Requirements"). Once the module is in the error state ([`error_state`]) every cell
 /// reads [`SelfTestStatus::Failed`], whichever algorithm failed.
 #[derive(Debug)]
 pub struct SelfTestStatusCell {
@@ -293,9 +294,10 @@ pub fn enter_error_state(cause: SelfTestedAlgorithm) {
         ERROR_STATE.compare_exchange(NO_ERROR, cause.index(), Ordering::AcqRel, Ordering::Acquire);
 }
 
-/// The check every operation of a self-tested algorithm makes before it produces output, so that
-/// keys, workers and hashes that already exist stop when the module enters the error state (it
-/// "inhibits data output", AS03.07 as FIPS 140-3 IG 1.B cites it).
+/// The check a gated operation of a self-tested algorithm makes before it produces output, so that
+/// keys, workers and hashes that already exist stop when the module enters the error state (data
+/// output is inhibited in it: AS03.07, quoted in the `bouncycastle-fips` crate docs,
+/// "Requirements"; which operations are not gated is in its Security Considerations).
 ///
 /// # Panics
 /// If the module is in the error state, naming `algorithm` and the algorithm whose failure

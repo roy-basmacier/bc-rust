@@ -14,7 +14,8 @@ source downloaded on the review date; where it was not, it says **unverified**. 
 *Implementation Guidance for FIPS 140-3 and the Cryptographic Module Validation Program*, last
 update 2026-08-19 (the URL is in the crate docs). The IG quotes ISO/IEC 19790:2012 and ISO/IEC
 24759:2017 in part; neither standard is freely available, so a requirement the IG does not quote
-is marked unverified. [How each figure was obtained](#how-this-was-checked) is at the end.
+is marked unverified. (Found since: NIST SP 800-140 gives AS03.07 and AS10.07; the crate docs
+now quote them from it.) [How each figure was obtained](#how-this-was-checked) is at the end.
 
 ## Short version
 
@@ -54,14 +55,15 @@ The embedded vectors are byte-for-byte the cited ones in both variants: CAVP
 `SHA512ShortMsg.rsp` (CAVS 11.0) `Len = 24`, and SP 800-38A Appendix F.2.2 (all four blocks). The
 IG sections the crate docs cite exist and say what the docs say, with two caveats:
 
-* The docs' "per AS10.07 as IG 1.B applies it, a failed self-test puts the *entire* module in the
+* The docs' wording at the review, "per AS10.07 as IG 1.B applies it, a failed self-test puts the *entire* module in the
   error state" rests on a sentence about hybrid modules: "if any self-test implemented in any
   disjoint component of a hybrid module fails, the entire hybrid module shall [IG1.B.10.01] enter
   an error state". The IG does not quote AS10.07 itself, so that it says the same of a software
-  module is a reasonable reading, but **unverified**.
+  module was **unverified** at the review. Since verified: NIST SP 800-140 (March 2020) Section
+  6.10 gives AS10.07, which says it of every module, and the crate docs now cite that.
 * IG 10.3.A Resolution 2 lists "a CAST for SHA-1 is required" without the "if implemented" the
   docs add. Note2 of the same IG supports the docs' reading ("separate CASTs are needed for SHA-1,
-  SHA-256 and SHA-512, if the module is designed to use these hash functions").
+  SHA-256 and SHA-512, if the module is designed to use these hash functions"). The docs now quote both.
 
 ## Measured comparison
 
@@ -178,7 +180,7 @@ Defects in the prototypes, for whoever converges them. None was fixed on the var
 | B-4 | The second of two overlapping `power_on_self_tests` calls returns an error (`NotPassed(_, Running)`) although nothing is wrong; a caller that treats any error as fatal aborts a healthy program. The crate's own test works around it with `while power_on_self_tests().is_err() {}`. And with one feature only, `bouncycastle-fips` runs 2 tests: no scenario is checked in an AES-only or SHA-2-only build. | `tests/concurrent_run_tests.rs`; the `#![cfg(all(...))]` line in each scenario file. |
 | B-5 | The `KnownAnswerMismatch` arm of `bouncycastle-fips`'s `run` is never reached by a test: the fips tests enter the error state through the hook. | `tests/failure_tests.rs`. By inspection; `cargo mutants` generates no mutant for a match arm, so its clean run says nothing here. |
 | S-1 | During the first run the gate admits `Running`, so every thread can create services of an algorithm whose KAT has not finished. IG 10.3.A: "The conditional test shall [10.27] be performed prior to the first operational use of the cryptographic algorithm." Both variants document it and tell the application to finish power-on before starting threads. It exists because the KATs go through the gated public constructors. | Both gates; A's "Self-test in progress" docs; B's module docs. |
-| S-2 | Only creation is gated. A key or hash that exists when a self-test fails keeps producing output. The crate docs' own requirement is that the module "inhibits data output" in the error state (AS03.07, as IG 1.B and IG 10.3.E Resolution 5 cite it). | A documents it ("the gates are on creation only"); in B the gate is likewise only in the constructors. |
+| S-2 | Only creation is gated. A key or hash that exists when a self-test fails keeps producing output. The crate docs' own requirement is that the module inhibits data output in the error state (AS03.07). | A documents it ("the gates are on creation only"); in B the gate is likewise only in the constructors. |
 | S-3 | If a failure is recorded while another thread's KAT is running, that KAT's `SHA256::new()` panics, so `power_on_self_tests` panics instead of returning `Err`. | `assert_self_test` (A) and `require_passed` (B) are called from inside the KAT. By inspection. |
 | S-4 | The algorithm crates' own test suites never run against the gated build: `cargo test -p bouncycastle-aes --features fips` fails in both variants (first at `tests/alg_name_tests.rs`), as documented. The gate lines are covered only by `bouncycastle-fips`'s tests (A) or by those and one unit test (B). | Run in both; exit 101. |
 | S-5 | HMAC-SHA-2 becomes usable as soon as SHA-2 passes, but has no CAST. IG 10.3.A Resolution 4: "if the module implements a HMAC function (FIPS 198-1), a CAST for HMAC is required". Out of the prototype's stated scope (AES and SHA-2), but the HMAC and HKDF instantiations ship in `bouncycastle-sha2`, and the Hash_DRBG in `bouncycastle-rng` is in the dependency closure of `bouncycastle-aes` (through `bouncycastle-cipher`); Resolution 6 requires CASTs for it. | `crypto/sha2/src/hmac.rs`, `hkdf.rs`; `cargo tree`. |
@@ -277,7 +279,7 @@ following as well; none of it is addressed.
 | The integrity technique's own algorithm self-tested first | IG 10.2.A, [10.20] | Verified. Fits both layouts: the HMAC or signature CAST runs before the integrity check. |
 | Approved security service indicator | IG 2.4.C, AS02.24: "All services shall [02.24] provide an indicator when the service utilizes an approved cryptographic algorithm". It also says a service that provides on-demand self-tests needs one, which covers `run_self_tests`. | Verified. bc-rust ships algorithms IG 10.3.A has CASTs for beside ones it does not mention (SM3, SM4, ARIA, Camellia). If a module "can provide an approved and non-approved security service concurrently", a global indicator that cannot tell them apart "does not meet the requirement". |
 | A defined cryptographic boundary | [05.05] speaks of "the module's defined cryptographic boundary"; IG 1.A covers bound and embedded modules | The requirement is verified. What the boundary would be when each algorithm is a separately published crate, compiled from source by the application's build, is **unverified**; neither prototype defines one. |
-| Error state: inhibit all data output, an error indicator, how the module leaves it | AS03.07 is cited by IG 1.B and IG 10.3.E; IG 2.4.C mentions the indicators "required in AS10.08 and AS10.11" | The text of AS10.07 to AS10.11 is not in the IG: **unverified**, as the crate docs already say. Finding S-2 is against the part that is cited. |
+| Error state: inhibit all data output, an error indicator, how the module leaves it | AS03.07 and AS10.07 are in NIST SP 800-140 (Sections 6.3 and 6.10; quoted in the crate docs); IG 2.4.C mentions the indicators "required in AS10.08 and AS10.11" | The text of AS10.08 to AS10.11 is in neither the IG nor SP 800-140: **unverified**, as the crate docs say. Finding S-2 is against AS03.07. |
 | CASTs for every other approved algorithm offered | IG 10.3.A Resolutions 3 (SHA-3), 4 (HMAC), 6 (DRBG), 8 (KDFs), 14 (ML-KEM), 15 (ML-DSA) | Verified. |
 | Pairwise consistency test on every generated key pair | IG 10.3.A Additional Comment 1; ISO/IEC 19790:2012 §7.10.3.3 [10.35] | Verified. |
 | Entropy source health tests | IG 10.3.A Resolution 7 (SP 800-90B Section 4.2); IG 9.3.A, D.J, D.K exist on the subject | Resolution 7 verified; the other three were not read. Where bc-rust's seed comes from (`getrandom`) and whether that is inside the boundary is **unverified**. |

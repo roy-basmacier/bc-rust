@@ -23,7 +23,7 @@
 //!
 //! A hash can be created only while its status reads `Passed`: not during the first run, and not
 //! after a failure. A re-run reads `Passed` while it runs (IG 10.3.E Resolution 5 lets a repeated
-//! CAST run in the background), so hashes stay available through one.
+//! CAST, which this is, run in the background), so hashes stay available through one.
 
 use bouncycastle_core::errors::SuspendableError;
 use bouncycastle_core::fips::{
