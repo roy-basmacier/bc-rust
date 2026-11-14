@@ -198,6 +198,16 @@
 //! Section 5.6.2.2.1 requires full validation of a static peer key and Section 5.6.2.2.2 allows the
 //! partial routine for an ephemeral one on an approved curve; either way it happens in the
 //! key-agreement layer, before this function runs.
+//!
+//! **FIPS 140-3: this crate provides no approved service.** It is inside the
+//! `bouncycastle-fips` module boundary, as the arithmetic `bouncycastle-ecdsa` and
+//! `bouncycastle-eccdh` are built on, but it has no `fips` feature and nothing in it is gated.
+//! [`Curve::keygen_extra_bits`](curve::Curve::keygen_extra_bits),
+//! [`Curve::multiply_point`](curve::Curve::multiply_point) and the rest of the trait, and every
+//! `hazmat` function, run before the power-on self-tests and in the error state, with no
+//! self-test of their own and no pair-wise consistency test on a key pair. Generate keys and agree
+//! secrets through those two crates, whose `fips` features gate them; a key pair or shared secret
+//! computed here directly is not the output of an approved service.
 
 #![no_std]
 #![forbid(unsafe_code)]

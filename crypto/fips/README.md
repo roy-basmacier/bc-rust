@@ -215,6 +215,14 @@ runs them after AES (features `ecdsa` and `eccdh`, both default).
   has passed (`SignatureError` / `KeyAgreementError::SelfTestNotPassed`); `derive_pk` panics;
   existing signers, verifiers and agreement workers refuse in the error state. Decoding keys is
   not gated.
+* **`bouncycastle-ec` is not gated, by decision.** It is inside the boundary as the arithmetic
+  the two services are built on, and provides no service of its own: its `Curve` trait methods
+  (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
+  `shamir_multiply`) and its `hazmat` functions run ungated, with no CAST and no PCT, and their
+  output is not that of an approved service. Gating only `Curve` would close nothing, since the
+  same operations are public in `hazmat` for every curve, and both self-tests compute through
+  them at power-on. A test fails if either `keygen` stops running its PCT
+  (`a_failed_pct_enters_the_error_state` in each crate's `self_test.rs`).
 
 ## What is still missing
 
@@ -232,9 +240,7 @@ Before a Security Level 1 validation (decision 9), at least:
   operations only, so a GCM or GMAC worker can still absorb data and produce or check its tag
   (`CIPH_K(J0)` and `H` are computed at creation), and a CTR, CFB or GCM worker can use up to 15
   bytes of keystream it has already buffered;
-* **gating `bouncycastle-ec`**: it is inside the boundary, and its public `Curve` trait methods
-  (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
-  `shamir_multiply`) reach key generation and the ECC CDH primitive with no CAST and no PCT;
+* a **security policy** statement that `bouncycastle-ec` provides no service (below);
 * inhibiting output while `run_self_tests` re-runs the software integrity test (IG 10.3.E
   Resolution 5 exempts only the CAST re-runs; see the crate docs' Requirements section);
 * a module HMAC for the crates as published: `cargo package` rewrites `Cargo.toml`, which the

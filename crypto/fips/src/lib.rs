@@ -399,10 +399,16 @@
 //!   GMAC worker can absorb data and produce or check its tag (`CIPH_K(J0)` and `H` are computed
 //!   at creation), and a CTR, CFB or GCM worker can use up to 15 bytes of keystream it has
 //!   already buffered.
-//! * **Known gap: `bouncycastle-ec` is not gated.** It is inside the boundary, and the methods of
-//!   its public `Curve` trait (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`,
-//!   `public_point`, `shamir_multiply`) reach key generation and the ECC CDH primitive with no
-//!   CAST and no pair-wise consistency test.
+//! * **`bouncycastle-ec` provides no service, and is not gated.** It is inside the boundary as the
+//!   arithmetic ECDSA and ECC CDH are built on, but the methods of its public `Curve` trait
+//!   (`keygen_extra_bits`, `multiply_point`, `multiply_base_point`, `public_point`,
+//!   `shamir_multiply`) and the per-curve functions in its `hazmat` modules run before power-on
+//!   and in the error state, with no CAST and no pair-wise consistency test. The services are
+//!   `bouncycastle-ecdsa`'s and `bouncycastle-eccdh`'s: a key pair or a shared secret computed by
+//!   calling `bouncycastle-ec` directly is not the output of an approved service, and a security
+//!   policy built on this crate has to say so. Gating `ec` was decided against: the same
+//!   operations are public in its `hazmat` modules for every curve, so gating `Curve` alone would
+//!   close nothing, and the ECDSA and ECC CDH self-tests compute through both at power-on.
 //! * **Anyone can stop the module.** `bouncycastle_core::fips::enter_error_state` is public so
 //!   that any crate can report a failure (the ECDSA and ECC CDH pair-wise consistency tests do).
 //!   Nothing can clear
