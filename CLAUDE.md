@@ -84,12 +84,20 @@ The FIPS software integrity test (`bouncycastle-fips`'s `integrity` feature) fai
 cargo build --release --manifest-path crypto/fips/Cargo.toml -p bc-fips-install
 strip target/release/<program>                               # optional; strip goes first
 crypto/fips/target/release/bc-fips-install target/release/<program>    # then sign, if signing
-cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs a test program
+cargo test --manifest-path crypto/fips/bc-fips-install/Cargo.toml     # builds and installs the test programs
 ```
 
 Order matters: run it after the last `strip` (strip rewrites the ELF header, which is hashed) and
 before any code signing; run it again after anything that changes the file. It edits the file in
 place, prints the slot offset and value, and exits 1 on a file with no slot or two.
+
+The end-to-end test of the module integrity work is that tool's `tests/two_consumers_tests.rs`
+(two programs, AES-only and everything, in `tests/consumers`), not a `--workspace` test, since
+`bouncycastle-fips` is outside the workspace. The CLI's `fips` feature turns `integrity` on, so a
+`bc-rust` built with it exits 3 until the tool has run on it; `bc-rust fips-info` then prints the
+module table, `module-hmac` and the toolchain record. `cargo test -p cli --features fips` (and
+`--features fips-validated`) builds the tool into the test's own target directory and runs every
+CLI test against an installed copy (`cli/tests/common/fips_install.rs`).
 
 Independent check of the FIPS module's source HMACs (Python 3, standard library only, shares no code with
 the Rust build script):
@@ -113,6 +121,15 @@ build script. Any edit to a boundary crate changes the module HMAC, so
 `crypto/fips/src/expected_module_hmac.rs` gets the value the failing build prints. Test both
 settings of that feature. To run the helper's mutants with the fips tests, use
 `cargo mutants --in-place -p bouncycastle-fips-build --test-workspace true`.
+
+The approved-mode switch (`crypto/fips/APPROVED_MODE.md`): `bouncycastle-ec`'s default `sm2`
+feature is the only non-approved one, so the workspace dependency on `bouncycastle-ec` has
+`default-features = false` and only `bouncycastle-sm2` asks for `sm2`; a new boundary crate must
+not take `ec` with default features. Every boundary `build.rs` emits `cargo:features=` beside
+`cargo:src_dir=`; a feature that adds a non-approved service goes into `NON_APPROVED` in
+`build-support`. Test `--features approved-only` too: it adds `bouncycastle_fips::approved` and
+its tests, and `tests/approved_mode_tests.rs` builds a separate program three ways to check that
+the table is the same with the switch on and off.
 
 Quality / mutation testing:
 

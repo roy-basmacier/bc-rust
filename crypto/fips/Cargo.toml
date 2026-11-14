@@ -22,6 +22,10 @@ integrity = ["sha2"]
 # A release build of a validated version: the module HMAC must equal the constant in
 # src/expected_module_hmac.rs, or the build fails, and power-on checks it again.
 fips-validated = ["sha2"]
+# A FIPS-approved build: the build fails if any crate inside the module boundary has a cargo
+# feature on that adds a non-approved service (today `bouncycastle-ec/sm2`), and the module offers
+# its approved services as concrete types in `approved`. See APPROVED_MODE.md.
+approved-only = []
 
 # The module boundary: every crate of the module, which is the normal-dependency closure of aes,
 # ascon, hmac, hkdf, sha3, ec, ecdsa and eccdh. Each one is a direct dependency, whether or not this
@@ -34,7 +38,7 @@ bouncycastle-ascon = { path = "../ascon" }
 bouncycastle-cipher = { path = "../cipher" }
 bouncycastle-concatkdf = { path = "../concatkdf" }
 bouncycastle-core = { path = "../core", features = ["fips"] }
-bouncycastle-ec = { path = "../ec" }
+bouncycastle-ec = { path = "../ec", default-features = false }
 bouncycastle-eccdh = { path = "../eccdh" }
 bouncycastle-ecdsa = { path = "../ecdsa" }
 bouncycastle-hkdf = { path = "../hkdf" }
@@ -59,7 +63,8 @@ name = "crypto_officer"
 required-features = ["aes", "sha2"]
 
 [workspace]
-# The post-link tool. Its test program, `bc-fips-install/tests/consumer`, is a workspace of its own.
+# The post-link tool. Its test programs, `bc-fips-install/tests/consumer` and
+# `bc-fips-install/tests/consumers`, are workspaces of their own.
 # `build-support` is the build script's helper crate.
 members = ["bc-fips-install", "build-support"]
 # `cargo test --manifest-path crypto/fips/Cargo.toml` tests the build-time half too.

@@ -4,6 +4,12 @@ links = "bouncycastle_ec"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["sm2"]
+# SM2's curve arithmetic (`hazmat::sm2*`), which `bouncycastle-sm2` is built on. SP 800-186 does
+# not list SM2, so a build of `bouncycastle-fips` with `approved-only` fails if this is on.
+sm2 = []
+
 [dependencies]
 bouncycastle-utils.workspace = true
 
@@ -71,10 +77,12 @@ harness = false
 [[bench]]
 name = "sm2_field_benches"
 harness = false
+required-features = ["sm2"]
 
 [[bench]]
 name = "sm2_point_benches"
 harness = false
+required-features = ["sm2"]
 
 [[bench]]
 name = "p256_scalar_benches"
@@ -107,3 +115,30 @@ harness = false
 [[bench]]
 name = "sm2_scalar_benches"
 harness = false
+required-features = ["sm2"]
+
+# The other tests are found automatically; these need the `sm2` feature.
+
+[[test]]
+name = "sm2_comb_tests"
+required-features = ["sm2"]
+
+[[test]]
+name = "sm2_field_tests"
+required-features = ["sm2"]
+
+[[test]]
+name = "sm2_point_tests"
+required-features = ["sm2"]
+
+[[test]]
+name = "sm2_scalar_tests"
+required-features = ["sm2"]
+
+[[test]]
+name = "sm2_sec1_tests"
+required-features = ["sm2"]
+
+[[test]]
+name = "sm2_wnaf_tests"
+required-features = ["sm2"]

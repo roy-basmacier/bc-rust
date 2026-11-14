@@ -14,10 +14,10 @@
 //! wider than `lo`. The private `reduce` applies that fold twice, which leaves at most a single bit
 //! above `2^256`, then folds that bit in under a mask; the bounds that make exactly those steps
 //! sufficient are derived in `reduce`'s own comment. This is the only reduction of its shape in the
-//! crate -- [`crate::hazmat::p256`], [`crate::hazmat::p384`] and [`crate::hazmat::sm2`] evaluate
-//! the term tables of their respective standards, and the Brainpool curves use
-//! [`crate::montgomery`] -- so the argument is written out here rather than by reference to another
-//! curve.
+//! crate -- [`crate::hazmat::p256`], [`crate::hazmat::p384`] and `crate::hazmat::sm2` (with the
+//! `sm2` feature) evaluate the term tables of their respective standards, and the Brainpool curves
+//! use [`crate::montgomery`] -- so the argument is written out here rather than by reference to
+//! another curve.
 //!
 //! The masked third fold is not a formality. An earlier P-384 version of this same two-fold shape
 //! `debug_assert`ed that the bit was always `0`, which held for every random trial and was wrong:

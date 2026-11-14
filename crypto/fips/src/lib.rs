@@ -35,6 +35,7 @@
 //! | `sha2` | [`SelfTestedAlgorithm::SHA256`], [`SelfTestedAlgorithm::SHA512`], [`SelfTestedAlgorithm::HMAC_SHA512`] | SHA-224, SHA-256; SHA-384, SHA-512, SHA-512/224, SHA-512/256; none for HMAC-SHA-512 |
 //! | `integrity` (implies `sha2`; off by default; ELF only) | [`SelfTestedAlgorithm::SoftwareIntegrity`] | every service of the module, through the error state |
 //! | `fips-validated` (implies `sha2`; off by default) | [`SelfTestedAlgorithm::ModuleIntegrity`] | every service of the module, through the error state |
+//! | `approved-only` (off by default) | none | none; the build refuses non-approved features of the module crates, and the `approved` module offers the approved services as concrete types |
 //!
 //! The self-tests run in this order: SHA-256 and SHA-512, HMAC-SHA-512, the software integrity
 //! test, the module integrity check, AES. HMAC-SHA-512 needs SHA-512, whose gate refuses until its own self-test has passed;
@@ -71,6 +72,13 @@
 //!
 //! The build fails, whatever the features, if a module crate gains a dependency outside the
 //! module, or if the module's crates are not exactly the dependencies this crate lists.
+//!
+//! The toolchain record also lists each module crate's enabled cargo features as Cargo unified
+//! them ([`ToolchainRecord::crate_features`]). The features select only what is compiled and
+//! change no source file, so they never change the table. With the `approved-only` feature, the
+//! build fails if a module crate has a feature on that adds a non-approved service, naming the
+//! crate and the feature: today that is `bouncycastle-ec`'s `sm2`, which any dependency on
+//! `bouncycastle-ec` with default features, or on `bouncycastle-sm2`, turns on.
 //!
 //! # Usage Examples
 //!
@@ -136,17 +144,14 @@
 //! Security Policy:
 //!
 //! ```
-//! use bouncycastle_fips::{module_hmac, module_table, power_on_self_tests, toolchain};
+//! use bouncycastle_fips::{module_info, module_table, power_on_self_tests};
 //!
 //! power_on_self_tests().expect("self-tests pass");
-//! for entry in module_table() {
-//!     let hex: String = entry.hmac.iter().map(|b| format!("{b:02x}")).collect();
-//!     println!("{} {hex}", entry.package);
-//! }
-//! let t = toolchain();
-//! println!("{} on {} for {}, opt-level {}, {:?}", t.rustc, t.host, t.target, t.opt_level, t.features);
-//! let module: String = module_hmac().unwrap().iter().map(|b| format!("{b:02x}")).collect();
-//! println!("module-hmac {module}");
+//! // In the format of `bc-rust fips-info` and `dev_scripts/fips_module_hmac.py`; see ModuleInfo.
+//! let info = module_info().expect("HMAC-SHA-512 has passed its self-test");
+//! print!("{info}");
+//! // Or field by field.
+//! assert_eq!(info.table, module_table());
 //! ```
 //!
 //! `examples/crypto_officer.rs` runs the whole flow, including what an application that skips
@@ -317,6 +322,8 @@ use bouncycastle_aes as aes;
 #[cfg(feature = "sha2")]
 use bouncycastle_sha2 as sha2;
 
+#[cfg(feature = "approved-only")]
+pub mod approved;
 #[cfg(feature = "sha2")]
 pub mod binary_hmac;
 #[cfg(feature = "fips-validated")]
@@ -328,8 +335,8 @@ mod integrity;
 mod module_table;
 
 pub use module_table::{
-    MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleTableEntry, ToolchainRecord, module_hmac, module_table,
-    toolchain,
+    CrateFeatures, MODULE_HMAC_KEY, MODULE_HMAC_LEN, ModuleInfo, ModuleTableEntry, ToolchainRecord,
+    module_hmac, module_info, module_table, toolchain,
 };
 
 // The boundary crates this crate does not call. They are dependencies so that build.rs receives

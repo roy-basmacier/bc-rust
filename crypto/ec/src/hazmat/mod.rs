@@ -88,12 +88,22 @@ pub mod p521_scalar;
 pub mod p521_sec1;
 pub mod p521_wnaf;
 pub(crate) mod p521_wnaf_table;
+// SM2 is not in SP 800-186, so it is a feature of its own; see the crate docs.
+#[cfg(feature = "sm2")]
 pub mod sm2;
+#[cfg(feature = "sm2")]
 pub mod sm2_comb;
+#[cfg(feature = "sm2")]
 pub(crate) mod sm2_comb_table;
+#[cfg(feature = "sm2")]
 pub mod sm2_domain;
+#[cfg(feature = "sm2")]
 pub mod sm2_point;
+#[cfg(feature = "sm2")]
 pub mod sm2_scalar;
+#[cfg(feature = "sm2")]
 pub mod sm2_sec1;
+#[cfg(feature = "sm2")]
 pub mod sm2_wnaf;
+#[cfg(feature = "sm2")]
 pub(crate) mod sm2_wnaf_table;

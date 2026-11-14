@@ -102,6 +102,11 @@ pub const BOUNDARY: [&str; 15] = [
 /// (decided 2026-11-12); `getrandom` brings `cfg-if` and `libc`, which no boundary crate names.
 pub const EXTERNAL: [&str; 1] = ["getrandom"];
 
+/// The cargo features of boundary crates that add a service which is not approved, as
+/// (package, feature). With `approved-only`, [`check_approved_only`] refuses a build in which any
+/// of them is on. SM2 is not in SP 800-186 (crypto/fips/APPROVED_MODE.md).
+pub const NON_APPROVED: [(&str, &str); 1] = [("bouncycastle-ec", "sm2")];
+
 /// What the closure check needs from a boundary crate's `Cargo.toml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
@@ -152,6 +157,43 @@ pub struct Toolchain {
     pub profile: String,
     /// The enabled cargo features of `bouncycastle-fips`, lower case with `-`, sorted.
     pub features: Vec<String>,
+    /// Each boundary crate's enabled cargo features, as its build script reported them, with
+    /// the crates in table order.
+    pub crate_features: Vec<CrateFeatures>,
+}
+
+/// One boundary crate's enabled cargo features: its package name, and the features lower case
+/// with `-`, sorted.
+pub type CrateFeatures = (String, Vec<String>);
+
+/// The features in a boundary crate's `cargo:features=` value: comma-separated, as its build
+/// script writes them. Sorted, and an empty value is no features.
+pub fn parse_features(value: &str) -> Vec<String> {
+    let mut features: Vec<String> =
+        value.split(',').filter(|f| !f.is_empty()).map(str::to_string).collect();
+    features.sort();
+    features
+}
+
+/// The `approved-only` check: none of the [`NON_APPROVED`] features is on in `crate_features`.
+///
+/// # Errors
+/// Every non-approved feature that is on, one per line, naming the crate and the feature.
+pub fn check_approved_only(crate_features: &[CrateFeatures]) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for (package, features) in crate_features {
+        for (bad_package, bad_feature) in NON_APPROVED {
+            if package == bad_package && features.iter().any(|f| f == bad_feature) {
+                errors.push(format!(
+                    "`approved-only` is on, but `{package}` has the non-approved feature \
+                     `{bad_feature}` on. Something else in the build turns it on (a dependency \
+                     on `{package}` with default features, or with `features = [\"{bad_feature}\"]`); \
+                     remove that, or build without `approved-only`"
+                ));
+            }
+        }
+    }
+    if errors.is_empty() { Ok(()) } else { Err(errors.join("\n")) }
 }
 
 /// Reads the hashed files and the manifest of the crate in `dir`.
@@ -345,7 +387,7 @@ pub fn render(table: &[TableRow], toolchain: &Toolchain) -> String {
         s,
         "pub(crate) const TOOLCHAIN: ToolchainRecord = ToolchainRecord {{\n    rustc: {:?},\n    \
          host: {:?},\n    target: {:?},\n    opt_level: {:?},\n    profile: {:?},\n    \
-         features: &{:?},\n}};",
+         features: &{:?},\n    crate_features: &[",
         toolchain.rustc,
         toolchain.host,
         toolchain.target,
@@ -353,6 +395,13 @@ pub fn render(table: &[TableRow], toolchain: &Toolchain) -> String {
         toolchain.profile,
         toolchain.features
     );
+    for (package, features) in &toolchain.crate_features {
+        let _ = writeln!(
+            s,
+            "        CrateFeatures {{ package: {package:?}, features: &{features:?} }},"
+        );
+    }
+    s.push_str("    ],\n};\n");
     s
 }
 

@@ -1,0 +1,13 @@
+# The two programs `tests/two_consumers_tests.rs` builds, installs and runs: one that uses AES only
+# and one that uses every crate of the module, both linking bouncycastle-fips with the software
+# integrity test. A workspace of its own, so that the `integrity` feature is never unified into the
+# tool's build; the test builds each member on its own (`-p`), so neither's features reach the
+# other.
+[workspace]
+members = ["aes-only", "everything"]
+resolver = "3"
+
+# The root manifest's release profile, which `bc-rust` is built with.
+[profile.release]
+lto = "thin"
+strip = "debuginfo"

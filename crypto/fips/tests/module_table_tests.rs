@@ -12,7 +12,8 @@ use std::process::Command;
 use bouncycastle_fips::{MODULE_HMAC_KEY, ModuleTableEntry, module_table, toolchain};
 #[cfg(not(feature = "integrity"))]
 use bouncycastle_fips::{
-    SelfTestStatus, SelfTestedAlgorithm, module_hmac, power_on_self_tests, self_test_status,
+    SelfTestStatus, SelfTestedAlgorithm, module_hmac, module_info, power_on_self_tests,
+    self_test_status,
 };
 use bouncycastle_fips_build::{
     BOUNDARY, BoundaryCrate, build_table, dep_var_links, hex, read_crate,
@@ -68,6 +69,36 @@ fn the_module_hmac_is_derived_from_the_table() {
     assert_eq!(module_hmac(), Ok(bouncycastle_fips_build::module_hmac(&embedded_table())));
 }
 
+/// `ModuleInfo` holds the three public values and prints them in the format of
+/// `bc-rust fips-info`: the independent script's lines, then the toolchain record.
+#[cfg(not(feature = "integrity"))]
+#[test]
+fn module_info_prints_the_table_the_module_hmac_and_the_toolchain() {
+    power_on_self_tests().expect("self-tests pass");
+    let info = module_info().expect("HMAC-SHA-512 has passed");
+    assert_eq!(info.table, module_table());
+    assert_eq!(Ok(info.module_hmac), module_hmac());
+    assert_eq!(info.toolchain, toolchain());
+
+    let mut expected = String::new();
+    for e in module_table() {
+        expected.push_str(&format!("{} {}\n", e.package, hex(&e.hmac)));
+    }
+    expected.push_str(&format!("module-hmac {}\n", hex(&info.module_hmac)));
+    let t = toolchain();
+    expected.push_str(&format!(
+        "toolchain.rustc {}\ntoolchain.host {}\ntoolchain.target {}\ntoolchain.opt-level {}\n\
+         toolchain.profile {}\ntoolchain.features{}\n",
+        t.rustc,
+        t.host,
+        t.target,
+        t.opt_level,
+        t.profile,
+        t.features.iter().map(|f| format!(" {f}")).collect::<String>()
+    ));
+    assert_eq!(info.to_string(), expected);
+}
+
 #[test]
 fn the_table_is_the_boundary_in_bytewise_order() {
     let names: Vec<&str> = module_table().iter().map(|e: &ModuleTableEntry| e.package).collect();
@@ -114,6 +145,7 @@ fn the_toolchain_record() {
     let mut expected = Vec::new();
     for (feature, on) in [
         ("aes", cfg!(feature = "aes")),
+        ("approved-only", cfg!(feature = "approved-only")),
         ("default", cfg!(feature = "default")),
         ("fips-validated", cfg!(feature = "fips-validated")),
         ("integrity", cfg!(feature = "integrity")),
@@ -124,6 +156,25 @@ fn the_toolchain_record() {
         }
     }
     assert_eq!(t.features, expected.as_slice());
+    assert_eq!(t.approved_only(), cfg!(feature = "approved-only"));
+}
+
+/// The boundary crates' features: one entry per table row, in the same order, each sorted; and
+/// SM2 off, since nothing in this crate's own build asks for it.
+#[test]
+fn the_crate_features_in_the_record() {
+    let t = toolchain();
+    let packages: Vec<&str> = t.crate_features.iter().map(|c| c.package).collect();
+    let table: Vec<&str> = module_table().iter().map(|e| e.package).collect();
+    assert_eq!(packages, table);
+    for c in t.crate_features {
+        assert!(c.features.is_sorted(), "{c:?}");
+    }
+    let ec = t.crate_features.iter().find(|c| c.package == "bouncycastle-ec").unwrap();
+    assert_eq!(ec.features, &[] as &[&str]);
+    // The algorithm crates' `fips` features that this crate's own features turn on.
+    let sha2 = t.crate_features.iter().find(|c| c.package == "bouncycastle-sha2").unwrap();
+    assert_eq!(sha2.features.contains(&"fips"), cfg!(feature = "sha2"));
 }
 
 /// With `fips-validated`, power-on checks the module HMAC against the published constant and it
