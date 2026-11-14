@@ -18,9 +18,12 @@ fn main() {
     // `cargo:features=...` is exported as `DEP_BOUNCYCASTLE_CONCATKDF_FEATURES`: this crate's cargo
     // features as Cargo unified them for this build, lower case with `-`, sorted and
     // comma-separated, which `bouncycastle-fips` records and checks.
-    let mut features: Vec<String> = std::env::vars()
+    // `vars_os`, not `vars`, which panics on any variable that is not valid Unicode.
+    let mut features: Vec<String> = std::env::vars_os()
         .filter_map(|(var, _)| {
-            var.strip_prefix("CARGO_FEATURE_").map(|f| f.to_ascii_lowercase().replace('_', "-"))
+            var.to_str()?
+                .strip_prefix("CARGO_FEATURE_")
+                .map(|f| f.to_ascii_lowercase().replace('_', "-"))
         })
         .collect();
     features.sort();

@@ -108,9 +108,12 @@ fn toolchain(crate_features: Vec<CrateFeatures>) -> Toolchain {
         .find_map(|l| l.strip_prefix("host: "))
         .unwrap_or_else(|| fail("`rustc -vV` printed no host"))
         .to_string();
-    let mut features: Vec<String> = env::vars()
+    // `vars_os`, not `vars`, which panics on any variable that is not valid Unicode.
+    let mut features: Vec<String> = env::vars_os()
         .filter_map(|(k, _)| {
-            k.strip_prefix("CARGO_FEATURE_").map(|f| f.to_ascii_lowercase().replace('_', "-"))
+            k.to_str()?
+                .strip_prefix("CARGO_FEATURE_")
+                .map(|f| f.to_ascii_lowercase().replace('_', "-"))
         })
         .collect();
     features.sort();

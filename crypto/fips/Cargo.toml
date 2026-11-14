@@ -21,8 +21,9 @@ sha2 = ["bouncycastle-sha2/fips"]
 # implies `sha2`.
 ecdsa = ["bouncycastle-ecdsa/fips", "sha2"]
 # Self-test the ECC CDH primitive (every curve) and gate its key pairs and agreements on the
-# result; every generated key pair gets a pair-wise consistency test.
-eccdh = ["bouncycastle-eccdh/fips"]
+# result; every generated key pair gets a pair-wise consistency test. Implies `sha2`: an agreement
+# can derive through a KDF over SHA-2, which would otherwise run with no self-test and no gate.
+eccdh = ["bouncycastle-eccdh/fips", "sha2"]
 # Run the software integrity test (the binary HMAC) at power-on, after HMAC-SHA-512's self-test.
 # ELF targets only. Every program built with it fails power-on until the post-link tool has
 # written its binary HMAC; see `binary_hmac`.
