@@ -17,12 +17,15 @@ use bouncycastle::core::symmetric_key::{
 };
 use bouncycastle::core::traits::{MACGenerator, MACVerifier, XOF, XOFSqueezer};
 use bouncycastle::hmac::{HMACParams, HmacKey};
+#[cfg(not(bc_approved_only))]
 use bouncycastle::poly1305;
+#[cfg(not(bc_approved_only))]
 use bouncycastle::poly1305::hazmat::key_from_bytes;
 use bouncycastle::rng::HashDRBG_SHA512;
 use bouncycastle::sha2::{SHA224, SHA256, SHA384, SHA512, SHA512_224, SHA512_256};
 use bouncycastle::sha3::kmac::{KMAC_MAX_OUTPUT_LEN, KMAC_MIN_OUTPUT_LEN, KMACXOF128, KMACXOF256};
 use bouncycastle::sha3::{SHA3_224, SHA3_256, SHA3_384, SHA3_512};
+#[cfg(not(bc_approved_only))]
 use bouncycastle::sm3::SM3;
 use bouncycastle_utils::ct::ct_eq_bytes;
 use std::process::exit;
@@ -39,6 +42,7 @@ pub(crate) enum HMACVariant {
     SHA3_256,
     SHA3_384,
     SHA3_512,
+    #[cfg(not(bc_approved_only))]
     SM3,
 }
 
@@ -78,6 +82,7 @@ pub(crate) fn mac_cmd(
         HMACVariant::SHA3_256 => hmac::<32, SHA3_256>(&key, verify_val, output_hex),
         HMACVariant::SHA3_384 => hmac::<48, SHA3_384>(&key, verify_val, output_hex),
         HMACVariant::SHA3_512 => hmac::<64, SHA3_512>(&key, verify_val, output_hex),
+        #[cfg(not(bc_approved_only))]
         HMACVariant::SM3 => hmac::<32, SM3>(&key, verify_val, output_hex),
     }
 }
@@ -326,6 +331,7 @@ pub(crate) fn aes256_gmac_cmd(
 
 /// Poly1305 (RFC 8439 Sec 2.5) under a 32-byte one-time key, which must never MAC a second
 /// message. The tag is always the full 16 bytes.
+#[cfg(not(bc_approved_only))]
 pub(crate) fn poly1305_cmd(
     key: &Option<String>,
     key_file: &Option<String>,

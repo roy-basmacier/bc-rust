@@ -32,3 +32,8 @@ bouncycastle-utils.workspace = true
 [[bin]]
 name = "bc-rust"
 path = "src/main.rs"
+
+# `bc_approved_only` is set by `cli-fips`, which compiles some of these modules into an approved-mode
+# `bc-rust` that must not name SM3, Poly1305, ARIA, Camellia or SM4. It is never set in this crate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(bc_approved_only)'] }

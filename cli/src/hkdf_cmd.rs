@@ -11,6 +11,7 @@ use bouncycastle::hkdf;
 use bouncycastle::hkdf::HKDF;
 use bouncycastle::hmac::HMACParams;
 use bouncycastle::sha2::hkdf::{HKDF_SHA256, HKDF_SHA384, HKDF_SHA512};
+#[cfg(not(bc_approved_only))]
 use bouncycastle::sm3::hkdf::HKDF_SM3;
 
 #[allow(non_camel_case_types)]
@@ -18,6 +19,7 @@ pub(crate) enum HKDFVariant {
     SHA256,
     SHA384,
     SHA512,
+    #[cfg(not(bc_approved_only))]
     SM3,
 }
 
@@ -69,6 +71,7 @@ pub(crate) fn hkdf_cmd(
         HKDFVariant::SHA256 => run(HKDF_SHA256::new(), &salt, &ikm, &info, len, &mut out_key),
         HKDFVariant::SHA384 => run(HKDF_SHA384::new(), &salt, &ikm, &info, len, &mut out_key),
         HKDFVariant::SHA512 => run(HKDF_SHA512::new(), &salt, &ikm, &info, len, &mut out_key),
+        #[cfg(not(bc_approved_only))]
         HKDFVariant::SM3 => run(HKDF_SM3::new(), &salt, &ikm, &info, len, &mut out_key),
     };
     if let Err(e) = result {
